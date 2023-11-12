@@ -1,0 +1,21 @@
+[package]
+name = "steam-session"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+steamid-ng = "1.0.0"
+reqwest = "0.11.22"
+url = "2.4.1"
+tokio = { version = "1", features = ["rt"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+chrono = { version = "^0.4.27", features = ["serde"] }
+thiserror = "1.0.30"
+log = "0.4.0"
+
+# maybe not needed
+async-fs = "1.5.0"
+futures = "0.3.0"

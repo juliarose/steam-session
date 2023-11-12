@@ -1,0 +1,10 @@
+[package]
+name = "steam-session-proto"
+version = "0.1.0"
+authors = ["Julia"]
+edition = "2018"
+description = "Protobuf structs used for Steam sessions"
+license = "MIT"
+
+[dependencies]
+protobuf = "=2.24.1"
