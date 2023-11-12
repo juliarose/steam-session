@@ -15,3 +15,5 @@ https://doc.rust-lang.org/cargo/guide/cargo-toml-vs-cargo-lock.html
 # MSVC Windows builds of rustc generate these, which store debugging 
 information
 *.pdb
+
+.DS_Store
