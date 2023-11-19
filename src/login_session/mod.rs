@@ -1,9 +1,17 @@
-use crate::enums::{AuthTokenPlatformType, AuthSessionGuardType};
-use crate::interfaces::{StartSessionResponseValidAction, LoginSessionOptions, StartAuthSessionResponse, AuthenticationClientConstructorOptions};
+use crate::enums::{
+    AuthTokenPlatformType,
+    AuthSessionGuardType,
+};
+use crate::interfaces::{
+    StartSessionResponseValidAction,
+    LoginSessionOptions,
+    StartAuthSessionResponse,
+    AuthenticationClientConstructorOptions,
+};
 use crate::types::DateTime;
 use crate::authentication_client::AuthenticationClient;
 use crate::helpers::USER_AGENT;
-use std::time::Duration;
+use chrono::Duration;
 use reqwest::Client;
 use steamid_ng::SteamID;
 use tokio::task::JoinHandle;
@@ -49,9 +57,9 @@ impl LoginSession {
 
         let client = Client::new();
         let transport = 0;
-
+        
         Self {
-            login_timeout: Duration::from_secs(30),
+            login_timeout: Duration::seconds(30),
             account_name: None,
             access_token: None,
             refresh_token: None,
@@ -62,7 +70,7 @@ impl LoginSession {
                 client,
                 machine_id: options.machine_id,
                 transport,
-                web_user_agent: options.user_agent.unwrap_or_else(|| USER_AGENT.into()),
+                user_agent: options.user_agent.unwrap_or_else(|| USER_AGENT.into()),
             }),
             steam_guard_code: None,
             steam_guard_machine_token: None,
@@ -115,8 +123,8 @@ impl LoginSession {
             self.access_token = None;
             return;
         }
-
-
+    
+    
     }
 
     async fn process_start_session_response(&mut self) {

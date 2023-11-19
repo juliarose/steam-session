@@ -24,3 +24,30 @@ impl ApiRequest {
         )
     }
 }
+
+pub struct ApiRequest2 {
+    interface: String,
+    method: String,
+    version: u32,
+    access_token: Option<String>,
+}
+
+impl ApiRequest2 {
+    pub fn pathname(&self) -> String {
+        format!(
+            "I{}Service/{}/v{}",
+            self.interface,
+            self.method,
+            self.version
+        )
+    }
+    
+    pub fn target_name(&self) -> String {
+        format!(
+            "{}.{}#{}",
+            self.interface,
+            self.method,
+            self.version,
+        )
+    }
+}

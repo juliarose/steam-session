@@ -45,7 +45,7 @@ impl LoginApprover {
                 client,
                 machine_id: options.machine_id,
                 transport,
-                web_user_agent: USER_AGENT.into(),
+                user_agent: USER_AGENT.into(),
             }),
         }
     }

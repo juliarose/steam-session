@@ -1,11 +1,30 @@
-use std::net::SocketAddr;
+use crate::enums::{
+    EResult,
+    AuthTokenPlatformType,
+    AuthSessionGuardType,
+    AuthSessionSecurityHistory,
+    SessionPersistence,
+};
+use std::net::IpAddr;
 use steamid_ng::SteamID;
 use url::Url;
 use reqwest::Client;
 use reqwest::header::HeaderMap;
-use crate::enums::{EResult, AuthTokenPlatformType, AuthSessionGuardType, AuthSessionSecurityHistory, SessionPersistence};
 
 type Buffer = Vec<u8>;
+
+/// The type of connection to be used.
+#[derive(Debug, Clone)]
+pub enum ConnectionType {
+    /// Connect using a local address.
+    LocalAddress(IpAddr),
+    /// Connect using an HTTP proxy.
+    HttpProxy(Url),
+    /// Connect using a SOCKS proxy.
+    SocksProxy(Url),
+    /// Connect using a custom [`Client`].
+    Agent(Client),
+}
 
 // todo
 #[derive(Debug, Clone)]
@@ -15,10 +34,7 @@ pub struct CAuthentication_DeviceDetails {}
 pub struct LoginSessionOptions {
     // todo use transport
     pub transport: Option<u8>,
-    pub local_address: Option<SocketAddr>,
-    pub socks_proxy: Option<Url>,
-    pub http_proxy: Option<Url>,
-    pub agent: Option<Client>,
+    pub connnection_type: Option<ConnectionType>,
     pub user_agent: Option<String>,
     pub machine_id: Option<Vec<u8>>,
 }
@@ -107,7 +123,7 @@ pub struct AuthenticationClientConstructorOptions {
     // TODO use transport
     pub transport: u8,
     pub client: Client,
-    pub web_user_agent: String,
+    pub user_agent: String,
     pub machine_id: Option<Vec<u8>>,
 }
 

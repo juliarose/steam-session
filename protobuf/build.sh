@@ -8,7 +8,7 @@ echo -n "" > ../src/lib.rs
 
 for filename in *.proto; do
     rsprotoc $filename
-
+    
     mod="${filename%.*}";
     mod="${mod//\./_}";
     echo "pub mod ${mod};" >> ../src/lib.rs

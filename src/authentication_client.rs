@@ -24,7 +24,7 @@ pub struct AuthenticationClient {
     platform_type: AuthTokenPlatformType,
     client: Client,
     transport_close_timeout: Option<JoinHandle<()>>,
-    web_user_agent: String,
+    user_agent: String,
     machine_id: Option<Vec<u8>>,
 }
 
@@ -35,7 +35,7 @@ impl AuthenticationClient {
             platform_type: options.platform_type,
             client: options.client,
             transport_close_timeout: None,
-            web_user_agent: options.web_user_agent,
+            user_agent: options.user_agent,
             machine_id: options.machine_id,
         }
     }
@@ -62,7 +62,7 @@ impl AuthenticationClient {
 		// todo
         // let key = new RSAKey();
 		// key.setPublic(rsaInfo.publickey_mod, rsaInfo.publickey_exp);
-
+		
 		// return {
 		// 	encryptedPassword: hex2b64(key.encrypt(password)),
 		// 	keyTimestamp: rsaInfo.timestamp
