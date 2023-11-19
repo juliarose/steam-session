@@ -17,3 +17,4 @@ information
 *.pdb
 
 .DS_Store
+.vscode/
