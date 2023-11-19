@@ -1,6 +1,9 @@
+use num_enum::{TryFromPrimitive, IntoPrimitive};
+
 #[allow(non_camel_case_types)]
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum Msg {
+#[derive(Debug, Clone, Copy, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]
+#[repr(u32)]
+pub enum EMsg {
     Invalid = 0,
     Multi = 1,
     ProtobufWrapped = 2,

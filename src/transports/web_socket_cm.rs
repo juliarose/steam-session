@@ -1,12 +1,15 @@
-use crate::enums::Msg;
+use crate::enums::EMsg;
 use crate::proto::steammessages_base::CMsgProtoBufHeader;
 
 use super::ApiRequest2;
 use super::cm_server::CmServer;
 use std::collections::HashMap;
-use std::io::Cursor;
+use std::io::{Cursor, Read};
+use std::convert::TryFrom;
 use chrono::Duration;
 use futures::stream::SplitSink;
+use http::header;
+use protobuf::{ProtobufError, Message as ProtoMessage};
 use reqwest::Client;
 use reqwest::header::{HeaderMap, HeaderValue, InvalidHeaderValue};
 use reqwest::header::{USER_AGENT, ACCEPT_CHARSET, ACCEPT};
@@ -17,7 +20,7 @@ use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 use rand::Rng;
 use rand::seq::SliceRandom;
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
 use futures::StreamExt;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{tungstenite, connect_async};
@@ -52,6 +55,12 @@ pub enum Error {
     Connection(#[from] tungstenite::Error),
     #[error("Error parsing VDF body: {}", .0)]
     VdfParse(#[from]  keyvalues_serde::error::Error),
+    #[error("Received unexpected non-protobuf message: {}", .0)]
+    UnexpectedNonProtobufMessage(u32),
+    #[error("Error with protobuf message: {}", .0)]
+    Proto(#[from] ProtobufError),
+    #[error("Unknown EMsg: {}", .0)]
+    UnknownEMsg(u32),
 }
 
 pub struct WebSocketCMTransport {
@@ -63,8 +72,8 @@ pub struct WebSocketCMTransport {
     websocket: u8,
     writer: Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>>,
     reader_task: Option<JoinHandle<()>>,
-    jobs: HashMap<i64, JoinHandle<()>>,
-    client_session_id: i32,
+    jobs: HashMap<u64, JoinHandle<()>>,
+    client_sessionid: i32,
 }
 
 pub struct Message {
@@ -82,7 +91,7 @@ impl WebSocketCMTransport {
             writer: None,
             reader_task: None,
             jobs: HashMap::new(),
-            client_session_id: 0,
+            client_sessionid: 0,
         }
     }
     
@@ -97,7 +106,7 @@ impl WebSocketCMTransport {
     {
         // todo handle errors
         self.send_message(
-            Msg::ServiceMethodCallFromClientNonAuthed,
+            EMsg::ServiceMethodCallFromClientNonAuthed,
             body,
             Some(request.target_name()),
         ).await
@@ -105,7 +114,7 @@ impl WebSocketCMTransport {
     
     async fn send_message<T, D>(
         &self,
-        msg: Msg,
+        msg: EMsg,
         body: &T,
         service_method_name: Option<String>,
     ) -> Result<D, Error>
@@ -116,8 +125,8 @@ impl WebSocketCMTransport {
         // make sure websocket is connected
         
         let mut proto_header = CMsgProtoBufHeader::default();
-        let client_sessionid = if msg != Msg::ServiceMethodCallFromClientNonAuthed {
-            self.client_session_id
+        let client_sessionid = if msg != EMsg::ServiceMethodCallFromClientNonAuthed {
+            self.client_sessionid
         } else {
             0
         };
@@ -125,7 +134,7 @@ impl WebSocketCMTransport {
         proto_header.set_steamid(0);
         proto_header.set_client_sessionid(client_sessionid);
         
-        if msg == Msg::ServiceMethodCallFromClientNonAuthed {
+        if msg == EMsg::ServiceMethodCallFromClientNonAuthed {
             let mut jobid_buffer = rand::thread_rng().gen::<[u8; 8]>();
             
             jobid_buffer[0] = jobid_buffer[0] & 0x7f;
@@ -137,7 +146,7 @@ impl WebSocketCMTransport {
             proto_header.set_realm(1);
             
             let mut jobid_buffer_reader = Cursor::new(jobid_buffer);
-            let jobid = jobid_buffer_reader.read_i64::<BigEndian>()?;
+            let jobid = jobid_buffer_reader.read_u64::<BigEndian>()?;
             
         } else {
             // There's no response
@@ -199,6 +208,38 @@ impl WebSocketCMTransport {
     }
     
     fn handle_ws_message(&self, msg: Vec<u8>) -> Result<(), Error> {
+        let mut cursor = Cursor::new(msg.as_slice());
+        let raw_emsg = cursor.read_u32::<LittleEndian>()?;
+        let header_length = cursor.read_u32::<LittleEndian>()?;
+        let mut header_buffer: Vec<u8> = vec![0; header_length as usize];
+
+        cursor.read(&mut header_buffer)?;
+
+        let mut body_buffer: Vec<u8> = Vec::new();
+
+        cursor.read_to_end(&mut body_buffer)?;
+
+        if raw_emsg & PROTO_MASK == 0 {
+            return Err(Error::UnexpectedNonProtobufMessage(raw_emsg));
+        }
+
+        let header = CMsgProtoBufHeader::parse_from_bytes(&header_buffer)?;
+        let client_sessionid = header.get_client_sessionid();
+
+        if client_sessionid != 0 && client_sessionid != self.client_sessionid {
+
+        }
+
+        let emsg = EMsg::try_from(raw_emsg)
+            .map_err(|_| Error::UnknownEMsg(raw_emsg))?;
+        let jobid_target = header.get_jobid_target();
+
+        if jobid_target != 0 {
+            if let Some(job) = self.jobs.get(&jobid_target) {
+                
+            }
+        }
+
         todo!()
     }
 
