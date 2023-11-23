@@ -5,9 +5,7 @@ use super::ApiRequest2;
 use super::cm_server::CmServer;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
-use std::ops::{Deref, DerefMut};
 use std::convert::TryFrom;
-use std::fmt;
 use chrono::Duration;
 use futures::stream::SplitSink;
 use protobuf::{ProtobufError, Message as ProtoMessage};
@@ -172,7 +170,7 @@ impl WebSocketCMTransport {
             .choose(&mut rand::thread_rng())
             .ok_or(Error::NoCmServer)?;
         let uri = format!("wss://{}/cmsocket/", cm_server.endpoint);
-        // let uri = uri.parse::<Uri>()?;
+        let uri = uri.parse::<Uri>()?;
         let request = Request::builder()
             .uri(uri)
             .body(())?;
@@ -264,7 +262,6 @@ impl WebSocketCMTransport {
     }
 }
 
-// todo test the deserialize from fixture
 #[derive(Debug, Deserialize)]
 struct CmBody {
     #[serde(default)]
@@ -273,41 +270,6 @@ struct CmBody {
     success: i32,
     #[serde(default)]
     message: String,
-}
-
-#[derive(Debug, Default)]
-pub struct CmListCache {
-    inner: Vec<CmServer>,
-}
-
-impl CmListCache {
-    pub fn update(&mut self, cm_servers: Vec<CmServer>) {
-        self.inner = cm_servers;
-    }
-    
-    pub fn get(&self) -> &Vec<CmServer> {
-        self.inner.as_ref()
-    }
-}
-
-impl fmt::Display for CmListCache {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self.inner)
-    }
-}
-
-impl Deref for CmListCache {
-    type Target = Vec<CmServer>;
-    
-    fn deref(&self) -> &Vec<CmServer> {
-        &self.inner
-    }
-}
-
-impl DerefMut for CmListCache {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
 }
 
 fn parse_cm_list(text: &str) -> Result<Vec<CmServer>, Error> {

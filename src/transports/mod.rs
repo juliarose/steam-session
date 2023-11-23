@@ -2,6 +2,7 @@
 pub mod web_api;
 pub mod web_socket_cm;
 pub mod cm_server;
+pub mod cm_list_cache;
 
 pub struct ApiRequest {
     interface: String,
