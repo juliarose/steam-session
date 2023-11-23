@@ -5,16 +5,16 @@ use super::ApiRequest2;
 use super::cm_server::CmServer;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
+use std::ops::{Deref, DerefMut};
 use std::convert::TryFrom;
+use std::fmt;
 use chrono::Duration;
 use futures::stream::SplitSink;
-use http::header;
 use protobuf::{ProtobufError, Message as ProtoMessage};
 use reqwest::Client;
 use reqwest::header::{HeaderMap, HeaderValue, InvalidHeaderValue};
 use reqwest::header::{USER_AGENT, ACCEPT_CHARSET, ACCEPT};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::error::SendError;
 use tokio::task::JoinHandle;
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
@@ -164,9 +164,8 @@ impl WebSocketCMTransport {
                 cm_server.realm == "steamglobal"
             })
             .collect::<Vec<_>>();
-        let upper_bound = std::cmp::min(20, cm_list.len());
         
-        cm_list.truncate(upper_bound);
+        cm_list.truncate(20);
         
         // pick a random server
         let cm_server = cm_list
@@ -266,7 +265,7 @@ impl WebSocketCMTransport {
 }
 
 // todo test the deserialize from fixture
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct CmBody {
     #[serde(default)]
     serverlist: Option<HashMap<usize, CmServer>>,
@@ -276,6 +275,41 @@ struct CmBody {
     message: String,
 }
 
+#[derive(Debug, Default)]
+pub struct CmListCache {
+    inner: Vec<CmServer>,
+}
+
+impl CmListCache {
+    pub fn update(&mut self, cm_servers: Vec<CmServer>) {
+        self.inner = cm_servers;
+    }
+    
+    pub fn get(&self) -> &Vec<CmServer> {
+        self.inner.as_ref()
+    }
+}
+
+impl fmt::Display for CmListCache {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.inner)
+    }
+}
+
+impl Deref for CmListCache {
+    type Target = Vec<CmServer>;
+    
+    fn deref(&self) -> &Vec<CmServer> {
+        &self.inner
+    }
+}
+
+impl DerefMut for CmListCache {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
 fn parse_cm_list(text: &str) -> Result<Vec<CmServer>, Error> {
     let body = keyvalues_serde::from_str::<CmBody>(&text)?;
     
@@ -283,15 +317,8 @@ fn parse_cm_list(text: &str) -> Result<Vec<CmServer>, Error> {
         return Err(Error::CmServerListResponseMessage(body.message));
     }
     
-    // there is probably a better way to get these into a vec without having to sort them...
     let mut serverlist = body.serverlist
         .ok_or(Error::NoCmServerList)?
-        .into_iter()
-        .collect::<Vec<_>>();
-    
-    serverlist.sort_by(|(a, _), (b, _)| a.cmp(b));
-    
-    let serverlist = serverlist
         .into_iter()
         .map(|(_, cmserver)| cmserver)
         .collect::<Vec<_>>();
@@ -299,6 +326,9 @@ fn parse_cm_list(text: &str) -> Result<Vec<CmServer>, Error> {
     if serverlist.is_empty() {
         return Err(Error::NoCmServerList);
     }
+    
+    // lowest to highest by wtd_load (closest servers will appear first)
+    serverlist.sort_by(|a, b| a.wtd_load.cmp(&b.wtd_load));
     
     Ok(serverlist)
 }
