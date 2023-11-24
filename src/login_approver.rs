@@ -32,8 +32,7 @@ impl LoginApprover {
 		// 	httpsAgent: agent,
 		// 	localAddress: options.localAddress
 		// });
-
-        let transport = 0;
+        
         let platform_type = options.platform_type;
 
         Self {
@@ -44,7 +43,7 @@ impl LoginApprover {
                 platform_type,
                 client,
                 machine_id: options.machine_id,
-                transport,
+                transport: options.transport,
                 user_agent: USER_AGENT.into(),
             }),
         }

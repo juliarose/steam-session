@@ -1,4 +1,8 @@
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+use num_enum::{TryFromPrimitive, IntoPrimitive};
+
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]
+#[repr(i32)]
 pub enum EResult {
     Invalid = 0,
     OK = 1,

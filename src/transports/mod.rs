@@ -1,8 +1,19 @@
+use crate::enums::EResult;
+
 
 pub mod web_api;
 pub mod web_socket_cm;
 pub mod cm_server;
 pub mod cm_list_cache;
+
+pub use web_socket_cm::WebSocketCMTransport;
+
+#[derive(Debug, Clone)]
+pub struct ApiResponse {
+    eresult: Option<EResult>,
+    error_message: Option<String>,
+    body: Option<Vec<u8>>,
+}
 
 pub struct ApiRequest {
     interface: String,

@@ -7,6 +7,7 @@ use crate::interfaces::{
 };
 use reqwest::Client;
 use tokio::task::JoinHandle;
+use crate::transports::WebSocketCMTransport;
 
 #[derive(Debug, Clone)]
 pub struct RequestDefinition {
@@ -19,8 +20,7 @@ pub struct RequestDefinition {
 
 #[derive(Debug)]
 pub struct AuthenticationClient {
-    // todo use transport
-    transport: u8,
+    transport: WebSocketCMTransport,
     platform_type: AuthTokenPlatformType,
     client: Client,
     transport_close_timeout: Option<JoinHandle<()>>,
@@ -31,7 +31,7 @@ pub struct AuthenticationClient {
 impl AuthenticationClient {
     pub fn new(options: AuthenticationClientConstructorOptions) -> Self {
         Self {
-            transport: 0,
+            transport: options.transport,
             platform_type: options.platform_type,
             client: options.client,
             transport_close_timeout: None,

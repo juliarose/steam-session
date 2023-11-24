@@ -5,6 +5,7 @@ use crate::enums::{
     AuthSessionSecurityHistory,
     SessionPersistence,
 };
+use crate::transports::WebSocketCMTransport;
 use std::net::IpAddr;
 use steamid_ng::SteamID;
 use url::Url;
@@ -117,11 +118,10 @@ pub struct PlatformData {
     pub device_details: CAuthentication_DeviceDetails,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AuthenticationClientConstructorOptions {
     pub platform_type: AuthTokenPlatformType,
-    // TODO use transport
-    pub transport: u8,
+    pub transport: WebSocketCMTransport,
     pub client: Client,
     pub user_agent: String,
     pub machine_id: Option<Vec<u8>>,

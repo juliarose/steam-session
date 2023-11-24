@@ -16,6 +16,8 @@ use reqwest::Client;
 use steamid_ng::SteamID;
 use tokio::task::JoinHandle;
 
+use crate::transports::WebSocketCMTransport;
+
 // dyn websocket or webapi
 // maybe enum?
 type Transport = u8;
@@ -38,7 +40,6 @@ pub struct LoginSession {
     poll_timer: Option<JoinHandle<()>>,
     polling_canceled: Option<bool>,
     access_token_set_at: Option<DateTime>,
-    transport: Transport,
 }
 
 impl LoginSession {
@@ -56,7 +57,7 @@ impl LoginSession {
 		// }
 
         let client = Client::new();
-        let transport = 0;
+        let transport = WebSocketCMTransport::new();
         
         Self {
             login_timeout: Duration::seconds(30),
@@ -80,7 +81,6 @@ impl LoginSession {
             poll_timer: None,
             polling_canceled: None,
             access_token_set_at: None,
-            transport,
         }
     }
 

@@ -1,7 +1,6 @@
-use crate::enums::EMsg;
+use crate::enums::{EMsg, EResult};
 use crate::proto::steammessages_base::CMsgProtoBufHeader;
-
-use super::ApiRequest2;
+use super::{ApiRequest2, ApiResponse};
 use super::cm_server::CmServer;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
@@ -12,8 +11,11 @@ use protobuf::{ProtobufError, Message as ProtoMessage};
 use reqwest::Client;
 use reqwest::header::{HeaderMap, HeaderValue, InvalidHeaderValue};
 use reqwest::header::{USER_AGENT, ACCEPT_CHARSET, ACCEPT};
+use steam_session_proto::steammessages_base::CMsgMulti;
+use steam_session_proto::steammessages_clientserver_login::CMsgClientLogonResponse;
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
+use tokio::sync::oneshot;
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 use rand::Rng;
@@ -26,10 +28,14 @@ use tokio_tungstenite::{WebSocketStream, MaybeTlsStream};
 use tokio_tungstenite::tungstenite::http::uri::{Uri, InvalidUri};
 use tokio_tungstenite::tungstenite::http::request::Request;
 
+#[derive(Debug)]
 struct Agent {}
 
 const PROTOCOL_VERSION: u32 = 65580;
 const PROTO_MASK: u32 = 0x80000000;
+
+pub type ResponseSender = oneshot::Sender<Result<ApiResponse, Error>>;
+pub type ResponseReceiver = oneshot::Receiver<Result<ApiResponse, Error>>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -59,8 +65,13 @@ pub enum Error {
     Proto(#[from] ProtobufError),
     #[error("Unknown EMsg: {}", .0)]
     UnknownEMsg(u32),
+    #[error("Unknown EResult: {}", .0)]
+    UnknownEResult(i32),
+    #[error("No response")]
+    NoResponse,
 }
 
+#[derive(Debug)]
 pub struct WebSocketCMTransport {
     connection_timeout: Duration,
     client: Client,
@@ -70,7 +81,7 @@ pub struct WebSocketCMTransport {
     websocket: u8,
     writer: Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>>,
     reader_task: Option<JoinHandle<()>>,
-    jobs: HashMap<u64, JoinHandle<()>>,
+    jobs: HashMap<u64, (ResponseSender, JoinHandle<()>)>,
     client_sessionid: i32,
 }
 
@@ -94,7 +105,7 @@ impl WebSocketCMTransport {
     }
     
     async fn send_request<T, D>(
-        &self,
+        &mut self,
         request: ApiRequest2,
         body: &T,
     ) -> Result<D, Error>
@@ -102,6 +113,7 @@ impl WebSocketCMTransport {
         T: Serialize,
         D: DeserializeOwned,
     {
+        let mut attempts = 0;
         // todo handle errors
         self.send_message(
             EMsg::ServiceMethodCallFromClientNonAuthed,
@@ -111,8 +123,8 @@ impl WebSocketCMTransport {
     }
     
     async fn send_message<T, D>(
-        &self,
-        msg: EMsg,
+        &mut self,
+        emsg: EMsg,
         body: &T,
         service_method_name: Option<String>,
     ) -> Result<D, Error>
@@ -123,7 +135,7 @@ impl WebSocketCMTransport {
         // make sure websocket is connected
         
         let mut proto_header = CMsgProtoBufHeader::default();
-        let client_sessionid = if msg != EMsg::ServiceMethodCallFromClientNonAuthed {
+        let client_sessionid = if emsg != EMsg::ServiceMethodCallFromClientNonAuthed {
             self.client_sessionid
         } else {
             0
@@ -131,14 +143,16 @@ impl WebSocketCMTransport {
         
         proto_header.set_steamid(0);
         proto_header.set_client_sessionid(client_sessionid);
+
+        let (tx, rx) = oneshot::channel();
         
-        if msg == EMsg::ServiceMethodCallFromClientNonAuthed {
+        if emsg == EMsg::ServiceMethodCallFromClientNonAuthed {
             let mut jobid_buffer = rand::thread_rng().gen::<[u8; 8]>();
             
             jobid_buffer[0] = jobid_buffer[0] & 0x7f;
             
-            if let Some(service_method_name) = service_method_name {
-                proto_header.set_target_job_name(service_method_name);
+            if let Some(target_job_name) = service_method_name {
+                proto_header.set_target_job_name(target_job_name);
             }
             
             proto_header.set_realm(1);
@@ -146,9 +160,31 @@ impl WebSocketCMTransport {
             let mut jobid_buffer_reader = Cursor::new(jobid_buffer);
             let jobid = jobid_buffer_reader.read_u64::<BigEndian>()?;
             
+            proto_header.set_jobid_source(jobid);
+
+            let timeout = tokio::spawn(async_std::task::sleep(std::time::Duration::from_secs(5)));
+
+            self.jobs.insert(jobid, (tx, timeout));
         } else {
             // There's no response
+            // todo maybe propogate this error
+            let _  = tx.send(Err(Error::NoResponse));
         }
+
+        let mut encoded_proto_header = Vec::new();
+
+        proto_header.write_to_vec(&mut encoded_proto_header)?;
+
+        let mut header = [0u8; 8];
+        // todo write these bytes
+        let emsg = emsg as u32 | PROTO_MASK >> 0;
+        let header_length = encoded_proto_header.len() as u32;
+
+        log::debug!("Send {emsg:?}");
+
+        // let mut writer = Cursor::new(header);
+        
+        // writer.
         
         todo!()
     }
@@ -204,7 +240,7 @@ impl WebSocketCMTransport {
         Ok(read)
     }
     
-    fn handle_ws_message(&self, msg: Vec<u8>) -> Result<(), Error> {
+    fn handle_ws_message(&mut self, msg: Vec<u8>) -> Result<(), Error> {
         let mut cursor = Cursor::new(msg.as_slice());
         let raw_emsg = cursor.read_u32::<LittleEndian>()?;
         let header_length = cursor.read_u32::<LittleEndian>()?;
@@ -231,13 +267,83 @@ impl WebSocketCMTransport {
             .map_err(|_| Error::UnknownEMsg(raw_emsg))?;
         let jobid_target = header.get_jobid_target();
 
+        // I'm not sure when this would be 0
+        log::debug!("handle_ws_message jobid {jobid_target}");
+
         if jobid_target != 0 {
-            if let Some(job) = self.jobs.get(&jobid_target) {
+            if let Some((sender, job)) = self.jobs.remove(&jobid_target) {
+                job.abort();
                 
+                let eresult =  EResult::try_from(header.get_eresult())
+                    .map_err(|_| Error::UnknownEResult(header.get_eresult()))?;
+                // todo maybe handle propogate the error
+                let _ = sender.send(Ok(ApiResponse {
+                    eresult: Some(eresult),
+                    error_message: None,
+                    body: Some(body_buffer),
+                }));
+
+                return Ok(());
             }
         }
 
+        // this isn't a response message, so figure out what it is
+        match emsg {
+            // The only time we expect to receive ClientLogOnResponse is when the CM is telling us to try another CM
+            EMsg::ClientLogOnResponse => {
+                let logon_response = CMsgClientLogonResponse::parse_from_bytes(&body_buffer)?;
+                let eresult =  EResult::try_from(logon_response.get_eresult())
+                    .map_err(|_| Error::UnknownEResult(logon_response.get_eresult()))?;
+
+                log::debug!("Received ClientLogOnResponse with result: {eresult:?}");
+
+                // todo abort all pending jobs
+                // for (let i in this._jobs) {
+				// 	let {reject, timeout} = this._jobs[i];
+				// 	clearTimeout(timeout);
+				// 	reject(eresultError(logOnResponse.eresult));
+				// }
+            },
+            EMsg::Multi => {
+
+            },
+            emsg => {
+                log::debug!("Received unexpected message: {emsg:?}");
+            },
+        }
+
         todo!()
+    }
+
+    pub async fn process_multi_message(&mut self, body_buffer: &Vec<u8>) -> Result<(), Error> {
+        let body = CMsgMulti::parse_from_bytes(body_buffer)?;
+        let payload = body.get_message_body();
+
+        if body.get_size_unzipped() != 0 {
+            // todo decompress from zlib
+            // We need to decompress it
+            // payload = await new Promise((resolve, reject) => {
+			// 	Zlib.gunzip(payload, (err, unzipped) => {
+			// 		if (err) {
+			// 			return reject(err);
+			// 		}
+
+			// 		resolve(unzipped);
+			// 	});
+			// });
+        }
+
+        let mut cursor = Cursor::new(payload);
+
+        while let Ok(chunk_size) = cursor.read_u32::<LittleEndian>() {
+            let mut chunk_buffer: Vec<u8> = vec![0; chunk_size as usize];
+
+            cursor.read(&mut chunk_buffer)?;
+
+            self.handle_ws_message(chunk_buffer)?;
+        }
+
+        Ok(())
     }
 
     async fn get_cm_list(&self) -> Result<Vec<CmServer>, Error> {
