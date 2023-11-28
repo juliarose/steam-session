@@ -110,6 +110,12 @@ impl MessageFilter {
         
         (filter, rx)
     }
+
+    pub fn on_job_id(&self, id: u64) -> oneshot::Receiver<Result<ApiResponse2, Error>> {
+        let (tx, rx) = oneshot::channel();
+        self.job_id_filters.insert(id, tx);
+        rx
+    }
 }
 
 #[derive(Debug)]
@@ -120,12 +126,10 @@ pub struct WebSocketCMTransport {
     local_address: Option<String>,
     // todo tungsten websocket
     websocket: u8,
-    writer: Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>>,
-    reader_task: Option<JoinHandle<()>>,
-    jobs: HashMap<u64, (ResponseSender, JoinHandle<()>)>,
-    // filter: Arc<MessageFilter>,
+    writer: tokio::sync::mpsc::Sender<Message>,
+    // jobs: HashMap<u64, (ResponseSender, JoinHandle<()>)>,
+    filter: Arc<MessageFilter>,
     client_sessionid: Arc<AtomicI32>,
-    cm_list: Arc<tokio::sync::Mutex<CmListCache>>,
 }
 
 pub struct Message {
@@ -133,19 +137,35 @@ pub struct Message {
 }
 
 impl WebSocketCMTransport {
-    pub fn new() -> Self {
+    pub async fn connect() -> Result<WebSocketCMTransport, Error> {
+        let cm_list = Arc::new(tokio::sync::Mutex::new(CmListCache::new()));
+        let transport = connect_to_cm(&cm_list).await?;
+
+        Ok(transport)
+    }
+
+    pub fn new(
+        mut source: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+        writer: tokio::sync::mpsc::Sender<Message>,
+    ) -> Self {
+        let client_sessionid = Arc::new(AtomicI32::new(0));
+        let (filter, _rest) = MessageFilter::new(
+            source,
+            client_sessionid.clone(),
+        );
+
         Self {
             connection_timeout: Duration::seconds(10),
             client: Client::new(),
             agent: Agent {},
             local_address: None,
             websocket: 0,
-            writer: None,
-            reader_task: None,
-            jobs: HashMap::new(),
-            // filter: Arc::new(MessageFilter::new()),
-            client_sessionid: Arc::new(AtomicI32::new(0)),
-            cm_list: Arc::new(tokio::sync::Mutex::new(CmListCache::new()))
+            writer,
+            // writer: None,
+            // reader_task: None,
+            // jobs: HashMap::new(),
+            filter: Arc::new(filter),
+            client_sessionid,
         }
     }
     
@@ -193,7 +213,7 @@ impl WebSocketCMTransport {
         proto_header.set_steamid(0);
         proto_header.set_client_sessionid(client_sessionid);
 
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = oneshot::channel::<Result<ApiResponse2, Error>>();
         
         if emsg == EMsg::ServiceMethodCallFromClientNonAuthed {
             let mut jobid_buffer = rand::thread_rng().gen::<[u8; 8]>();
@@ -213,7 +233,7 @@ impl WebSocketCMTransport {
             
             let timeout = tokio::spawn(async_std::task::sleep(std::time::Duration::from_secs(5)));
             
-            self.jobs.insert(jobid, (tx, timeout));
+            // self.jobs.insert(jobid, (tx, timeout));
         } else {
             // There's no response
             // todo maybe propogate this error
@@ -237,48 +257,6 @@ impl WebSocketCMTransport {
         
         
         Ok(Vec::new())
-    }
-    
-    async fn connect_to_cm(&mut self) -> Result<mpsc::Receiver<Message>, Error> {
-        let cm_server = {
-            let mut cm_list = self.cm_list.lock().await;
-            
-            cm_list.update().await?;
-            // pick a random server
-            cm_list.pick_random_websocket_server()
-        }.ok_or(Error::NoCmServer)?;
-        let uri = format!("wss://{}/cmsocket/", cm_server.endpoint).parse::<Uri>()?;
-        let request = Request::builder()
-            .uri(uri)
-            .body(())?;
-        let (ws_stream, _) = connect_async(request).await?;
-        let (ws_write, mut ws_read) = ws_stream.split();
-        let (write, read) = mpsc::channel::<Message>(100);
-        // clone to move into reader task
-        let cm_server_read = cm_server.clone();
-        
-        self.writer = Some(ws_write);
-        self.reader_task = Some(tokio::spawn(async move {
-            while let Some(result) = ws_read.next().await {
-                match result {
-                    Ok(message) => match message {
-                        tungstenite::Message::Binary(buffer) => {
-                            if let Err(error) = write.send(Message { }).await {
-                                break;
-                            }
-                        },
-                        other => {
-                            log::debug!("Websocket received message with type other than binary from {}", cm_server_read.endpoint);
-                        },
-                    },
-                    Err(error) => {
-                        
-                    },
-                }
-            }
-        }));
-        
-        Ok(read)
     }
     
     fn handle_ws_message(&mut self, msg: Vec<u8>) -> Result<(), Error> {
@@ -312,20 +290,20 @@ impl WebSocketCMTransport {
         log::debug!("handle_ws_message jobid {jobid_target}");
 
         if jobid_target != 0 {
-            if let Some((sender, job)) = self.jobs.remove(&jobid_target) {
-                job.abort();
+            // if let Some((sender, job)) = self.jobs.remove(&jobid_target) {
+            //     job.abort();
                 
-                let eresult =  EResult::try_from(header.get_eresult())
-                    .map_err(|_| Error::UnknownEResult(header.get_eresult()))?;
-                // todo maybe handle propogate the error
-                let _ = sender.send(Ok(ApiResponse2 {
-                    eresult: Some(eresult),
-                    error_message: None,
-                    body: Some(body_buffer),
-                }));
+            //     let eresult =  EResult::try_from(header.get_eresult())
+            //         .map_err(|_| Error::UnknownEResult(header.get_eresult()))?;
+            //     // todo maybe handle propogate the error
+            //     let _ = sender.send(Ok(ApiResponse2 {
+            //         eresult: Some(eresult),
+            //         error_message: None,
+            //         body: Some(body_buffer),
+            //     }));
 
-                return Ok(());
-            }
+            //     return Ok(());
+            // }
         }
 
         // this isn't a response message, so figure out what it is
@@ -386,4 +364,30 @@ impl WebSocketCMTransport {
         
         Ok(())
     }
+}
+
+async fn connect_to_cm(cm_list: &Arc<tokio::sync::Mutex<CmListCache>>) -> Result<WebSocketCMTransport, Error> {
+    let cm_server = {
+        let mut cm_list = cm_list.lock().await;
+        
+        cm_list.update().await?;
+        // pick a random server
+        cm_list.pick_random_websocket_server()
+    }.ok_or(Error::NoCmServer)?;
+    let uri = format!("wss://{}/cmsocket/", cm_server.endpoint).parse::<Uri>()?;
+    let request = Request::builder()
+        .uri(uri)
+        .body(())?;
+    let (ws_stream, _) = connect_async(request).await?;
+    let (ws_write, mut ws_read) = ws_stream.split();
+    let (write, read) = mpsc::channel::<Message>(100);
+    // clone to move into reader task
+    let cm_server_read = cm_server.clone();
+    let transport = WebSocketCMTransport::new(
+        ws_read,
+        write,
+    );
+    
+    
+    Ok(transport)
 }

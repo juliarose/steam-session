@@ -43,10 +43,10 @@ pub struct LoginSession {
 }
 
 impl LoginSession {
-    pub fn new(
+    pub async fn connect(
         platform_type: AuthTokenPlatformType,
         options: LoginSessionOptions,
-    ) -> Self {
+    ) -> Result<Self, LoginSessionError> {
         // probably reqwest client
         // let agent:HTTPS.Agent = options.agent || new HTTPS.Agent({keepAlive: true});
 
@@ -57,9 +57,9 @@ impl LoginSession {
 		// }
 
         let client = Client::new();
-        let transport = WebSocketCMTransport::new();
+        let transport = WebSocketCMTransport::connect().await?;
         
-        Self {
+        Ok(Self {
             login_timeout: Duration::seconds(30),
             account_name: None,
             access_token: None,
@@ -81,7 +81,7 @@ impl LoginSession {
             poll_timer: None,
             polling_canceled: None,
             access_token_set_at: None,
-        }
+        })
     }
 
     pub fn steamid(&self) -> Option<SteamID> {
@@ -225,4 +225,6 @@ pub enum LoginSessionError {
     LoginCannotUseMethodWithScheme,
     #[error("No Steam Guard code is needed for this login attempt")]
     LoginAttemptSteamGuardNotRequired,
+    #[error("Websocket CM: {}", .0)]
+    WebSocketCM(#[from] crate::transports::web_socket_cm::Error),
 }
