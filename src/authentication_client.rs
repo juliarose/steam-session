@@ -1,13 +1,32 @@
-use crate::enums::AuthTokenPlatformType;
+use crate::enums::{AuthTokenPlatformType, EOSType};
 use crate::interfaces::{
     AuthenticationClientConstructorOptions,
     SubmitSteamGuardCodeRequest,
     StartAuthSessionRequest,
-    MobileConfirmationRequest, GetAuthSessionInfoRequest,
+    MobileConfirmationRequest,
+    GetAuthSessionInfoRequest,
+    PlatformData,
+    DeviceDetails,
 };
+use crate::api_method::{ApiRequest, ApiResponse};
 use reqwest::Client;
+use reqwest::header::{HeaderMap, USER_AGENT, InvalidHeaderValue, HeaderValue, ORIGIN, REFERER, COOKIE};
+use serde::Serialize;
 use tokio::task::JoinHandle;
-use crate::transports::WebSocketCMTransport;
+use crate::transports::{WebSocketCMTransport, ApiRequest2};
+use crate::transports::web_socket_cm::Error as WebSocketCmError;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Unsupported platform type: {:?}", .0)]
+    UnsupportedPlatformType(AuthTokenPlatformType),
+    #[error("{}", .0)]
+    InvalidHeaderValue(#[from] InvalidHeaderValue),
+    #[error("serde_qs error: {}", .0)]
+    SerdeQS(#[from] serde_qs::Error),
+    #[error("websocket error: {}", .0)]
+    Websocket(#[from] WebSocketCmError),
+}
 
 #[derive(Debug, Clone)]
 pub struct RequestDefinition {
@@ -24,7 +43,7 @@ pub struct AuthenticationClient {
     platform_type: AuthTokenPlatformType,
     client: Client,
     transport_close_timeout: Option<JoinHandle<()>>,
-    user_agent: String,
+    user_agent: &'static str,
     machine_id: Option<Vec<u8>>,
 }
 
@@ -39,25 +58,149 @@ impl AuthenticationClient {
             machine_id: options.machine_id,
         }
     }
-
+    
     async fn get_rsa_key(
         &self,
         account_name: String,
-    ) -> Result<(), AuthenticationClientError> {
+    ) -> Result<(), Error> {
         todo!()
     }
-
+    
+    async fn send_request<Msg>(
+        &mut self,
+        msg: Msg,
+        access_token: Option<String>,
+    ) -> Result<(), Error>
+    where
+        Msg: ApiRequest,
+        <Msg as ApiRequest>::Response: Send,
+    {
+        let headers = self.get_platform_data()?.headers;
+        let result = self.transport.send_request(
+            msg,
+            access_token,
+            Some(headers),
+            &[],
+        ).await?;
+        
+        Ok(())
+    }
+    
+    fn close(&mut self) {
+        if let Some(handle) = &self.transport_close_timeout {
+            handle.abort();
+        }
+        
+        self.transport_close_timeout = Some(tokio::task::spawn(async move {
+            // transport.close();
+        }));
+    }
+    
     fn get_platform_data(
         &self,
-    ) {
+    ) -> Result<PlatformData, Error> {
+        #[derive(Debug, Serialize)]
+        // make all keys uppercase aka screaming snake case
+        #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+        struct RefererQuery {
+            pub in_client: &'static str,
+            pub website_id: &'static str,
+            pub local_hostname: &'static str,
+            pub webapi_base_url: &'static str,
+            pub store_base_url: &'static str,
+            pub use_popups: &'static str,
+            pub dev_mode: &'static str,
+            pub language: &'static str,
+            pub platform: &'static str,
+            pub country: &'static str,
+            pub launcher_type: &'static str,
+            pub in_login: &'static str,
+        }
+        
+        match self.platform_type {
+            AuthTokenPlatformType::SteamClient => {
+                let referer_query = RefererQuery {
+                    in_client: "true",
+                    website_id: "Client",
+                    local_hostname: todo!(),
+                    webapi_base_url: "https://api.steampowered.com/",
+                    store_base_url: "https://store.steampowered.com/",
+                    use_popups: "true",
+                    dev_mode: "false",
+                    language: "english",
+                    platform: "windows",
+                    country: "US",
+                    launcher_type: "0",
+                    in_login: "true"
+                };
+                let referer_qs = serde_qs::to_string(&referer_query)?;
+                let mut headers = HeaderMap::new();
+                
+                headers.append(USER_AGENT, HeaderValue::from_str("Mozilla/5.0 (Windows; U; Windows NT 10.0; en-US; Valve Steam Client/default/1665786434; ) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36")?);
+                headers.append(ORIGIN, HeaderValue::from_str("https://steamloopback.host")?);
+                headers.append(REFERER, HeaderValue::from_str(&format!("https://steamloopback.host/index.html?{}", &referer_qs))?);
+                
+                Ok(PlatformData {
+                    website_id: "Unknown",
+                    // Headers are actually not used since this is sent over a CM connection
+                    headers,
+                    device_details: DeviceDetails {
+                        device_friendly_name: referer_query.local_hostname,
+                        platform_type: self.platform_type,
+                        os_type: Some(EOSType::Win11),
+                        gaming_device_type: Some(1),
+                    },
+                })
+            },
+            AuthTokenPlatformType::WebBrowser => {
+                let mut headers = HeaderMap::new();
+                
+                headers.append(USER_AGENT, HeaderValue::from_str(self.user_agent)?);
+                headers.append(ORIGIN, HeaderValue::from_str("https://steamcommunity.com")?);
+                headers.append(REFERER, HeaderValue::from_str("https://steamcommunity.com")?);
+                
+                Ok(PlatformData {
+                    website_id: "Community",
+                    // Headers are actually not used since this is sent over a CM connection
+                    headers,
+                    device_details: DeviceDetails {
+                        device_friendly_name: self.user_agent,
+                        platform_type: self.platform_type,
+                        os_type: None,
+                        gaming_device_type: None,
+                    },
+                })
+            },
+            AuthTokenPlatformType::MobileApp => {
+                let mut headers = HeaderMap::new();
+                
+                headers.append(USER_AGENT, HeaderValue::from_str("okhttp/3.12.12")?);
+                headers.append(COOKIE, HeaderValue::from_str("mobileClient=android; mobileClientVersion=777777 3.0.0")?);
+                
+                Ok(PlatformData {
+                    website_id: "Mobile",
+                    // Headers are actually not used since this is sent over a CM connection
+                    headers,
+                    device_details: DeviceDetails {
+                        device_friendly_name: "Galaxy S22",
+                        platform_type: self.platform_type,
+                        os_type: Some(EOSType::AndroidUnknown),
+                        gaming_device_type: Some(528),
+                    },
+                })
+            },
+            platform_type => {
+                Err(Error::UnsupportedPlatformType(platform_type))
+            },
+        }
         // todo
     }
-
+    
     async fn encrypt_password(
         &self,
         account_name: String,
         password: String,
-    ) -> Result<EncryptedPassword, AuthenticationClientError> {
+    ) -> Result<EncryptedPassword, Error> {
         let rsa_info = self.get_rsa_key(account_name).await?;
 		// todo
         // let key = new RSAKey();
@@ -77,7 +220,7 @@ impl AuthenticationClient {
         &self,
         access_token: String,
         details: GetAuthSessionInfoRequest,
-    ) -> Result<(), AuthenticationClientError> {
+    ) -> Result<(), Error> {
         let request = RequestDefinition {
             api_interface: "Authentication".into(),
             api_method: "GetAuthSessionInfo".into(),
@@ -94,7 +237,7 @@ impl AuthenticationClient {
         &self,
         access_token: String,
         details: MobileConfirmationRequest,
-    ) -> Result<(), AuthenticationClientError> {
+    ) -> Result<(), Error> {
         let request = RequestDefinition {
             api_interface: "Authentication".into(),
             api_method: "UpdateAuthSessionWithMobileConfirmation".into(),
@@ -111,7 +254,7 @@ impl AuthenticationClient {
         &mut self,
         refresh_token: String,
         renew_refresh: bool,
-    ) -> Result<(), AuthenticationClientError> {
+    ) -> Result<(), Error> {
         let request = RequestDefinition {
             api_interface: "Authentication".into(),
             api_method: "GenerateAccessTokenForApp".into(),
@@ -124,27 +267,10 @@ impl AuthenticationClient {
         Ok(())
     }
 
-    async fn send_request(
-        &self,
-        request: RequestDefinition,
-    ) -> Result<(), AuthenticationClientError> {
-        Ok(())
-    }
-
-    fn close(&mut self) {
-        if let Some(handle) = &self.transport_close_timeout {
-            handle.abort();
-        }
-
-        self.transport_close_timeout = Some(tokio::task::spawn(async move {
-            // transport.close();
-        }));
-    }
-
     async fn start_session_with_credentials(
         &self,
         details: StartAuthSessionRequest,
-    ) -> Result<(), AuthenticationClientError> {
+    ) -> Result<(), Error> {
 		// let {websiteId, deviceDetails} = this._getPlatformData();
 
 		// let data:CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData = {
@@ -193,7 +319,7 @@ impl AuthenticationClient {
         Ok(())
     }
 
-    async fn submit_steam_guard_code(&self, details: SubmitSteamGuardCodeRequest) -> Result<(), AuthenticationClientError> {
+    async fn submit_steam_guard_code(&self, details: SubmitSteamGuardCodeRequest) -> Result<(), Error> {
         // let data:CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request = {
 		// 	client_id: details.clientId,
 		// 	steamid: details.steamId,
@@ -217,9 +343,4 @@ impl AuthenticationClient {
 pub struct EncryptedPassword {
     password: String,
     key_timestamp: String,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum AuthenticationClientError {
-
 }

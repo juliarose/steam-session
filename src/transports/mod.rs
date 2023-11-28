@@ -1,29 +1,28 @@
 use crate::enums::EResult;
 
-
 pub mod web_api;
 pub mod web_socket_cm;
 pub mod cm_server;
 pub mod cm_list_cache;
+pub mod helpers;
 
+use reqwest::header::HeaderMap;
 pub use web_socket_cm::WebSocketCMTransport;
 
 #[derive(Debug, Clone)]
-pub struct ApiResponse {
-    eresult: Option<EResult>,
-    error_message: Option<String>,
-    body: Option<Vec<u8>>,
+pub struct ApiResponse2 {
+    pub eresult: Option<EResult>,
+    pub error_message: Option<String>,
+    pub body: Option<Vec<u8>>,
 }
 
 pub struct ApiRequest {
-    interface: String,
-    method: String,
-    version: u32,
-    access_token: Option<String>,
-    // todo proper data type, probably String or Vec<u8>,
-    request_data: Option<u8>,
-    // todo headers type
-    headers: Option<u8>,
+    pub interface: String,
+    pub method: String,
+    pub version: u32,
+    pub access_token: Option<String>,
+    pub request_data: Option<Vec<u8>>,
+    pub headers: HeaderMap,
 }
 
 impl ApiRequest {
@@ -38,10 +37,11 @@ impl ApiRequest {
 }
 
 pub struct ApiRequest2 {
-    interface: String,
-    method: String,
-    version: u32,
-    access_token: Option<String>,
+    pub interface: String,
+    pub method: String,
+    pub version: u32,
+    pub access_token: Option<String>,
+    pub headers: Option<HeaderMap>,
 }
 
 impl ApiRequest2 {

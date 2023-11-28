@@ -1,28 +1,27 @@
 use crate::enums::{EMsg, EResult};
-use crate::proto::steammessages_base::CMsgProtoBufHeader;
-use super::{ApiRequest2, ApiResponse};
-use super::cm_server::CmServer;
+use crate::proto::steammessages_base::{CMsgProtoBufHeader, CMsgMulti};
+use crate::proto::steammessages_clientserver_login::CMsgClientLogonResponse;
+use crate::api_method::ApiRequest;
+use super::cm_list_cache::CmListCache;
+use super::{ApiResponse2, cm_list_cache};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::convert::TryFrom;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, Ordering};
 use chrono::Duration;
-use futures::stream::SplitSink;
 use protobuf::{ProtobufError, Message as ProtoMessage};
+use futures::stream::{SplitSink, SplitStream};
 use reqwest::Client;
-use reqwest::header::{HeaderMap, HeaderValue, InvalidHeaderValue};
-use reqwest::header::{USER_AGENT, ACCEPT_CHARSET, ACCEPT};
-use steam_session_proto::steammessages_base::CMsgMulti;
-use steam_session_proto::steammessages_clientserver_login::CMsgClientLogonResponse;
+use reqwest::header::HeaderMap;
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio::sync::oneshot;
-use serde::{Serialize, Deserialize};
-use serde::de::DeserializeOwned;
-use rand::Rng;
-use rand::seq::SliceRandom;
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt};
-use futures::StreamExt;
 use tokio::sync::mpsc;
+use dashmap::DashMap;
+use rand::Rng;
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use futures::StreamExt;
 use tokio_tungstenite::{tungstenite, connect_async};
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream};
 use tokio_tungstenite::tungstenite::http::uri::{Uri, InvalidUri};
@@ -34,21 +33,15 @@ struct Agent {}
 const PROTOCOL_VERSION: u32 = 65580;
 const PROTO_MASK: u32 = 0x80000000;
 
-pub type ResponseSender = oneshot::Sender<Result<ApiResponse, Error>>;
-pub type ResponseReceiver = oneshot::Receiver<Result<ApiResponse, Error>>;
+pub type ResponseSender = oneshot::Sender<Result<ApiResponse2, Error>>;
+pub type ResponseReceiver = oneshot::Receiver<Result<ApiResponse2, Error>>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("{}", .0)]
-    Reqwest(#[from] reqwest::Error),
-    #[error("{}", .0)]
-    InvalidHeaderValue(#[from] InvalidHeaderValue),
     #[error("No CM server available")]
     NoCmServer,
-    #[error("The request returned a response without a list of servers")]
-    NoCmServerList,
-    #[error("CM server returned an error with message: {}", .0)]
-    CmServerListResponseMessage(String),
+    #[error("{}", .0)]
+    CmServer(#[from] cm_list_cache::Error),
     #[error("IO error with websocket: {}", .0)]
     OI(#[from] std::io::Error),
     #[error("HTTP error with websocket: {}", .0)]
@@ -57,8 +50,6 @@ pub enum Error {
     Url(#[from] InvalidUri),
     #[error("Connection error with websocket: {}", .0)]
     Connection(#[from] tungstenite::Error),
-    #[error("Error parsing VDF body: {}", .0)]
-    VdfParse(#[from]  keyvalues_serde::error::Error),
     #[error("Received unexpected non-protobuf message: {}", .0)]
     UnexpectedNonProtobufMessage(u32),
     #[error("Error with protobuf message: {}", .0)]
@@ -69,6 +60,56 @@ pub enum Error {
     UnknownEResult(i32),
     #[error("No response")]
     NoResponse,
+}
+
+#[derive(Debug, Clone)]
+struct MessageFilter {
+    job_id_filters: Arc<DashMap<u64, oneshot::Sender<Result<ApiResponse2, Error>>>>,
+    client_sessionid: Arc<AtomicI32>,
+}
+
+impl MessageFilter {
+    pub fn new(
+        mut source: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+        client_sessionid: Arc<AtomicI32>,
+    ) -> (Self, mpsc::Receiver<Result<Message, Error>>) {
+        let (rest_tx, rx) = mpsc::channel::<Result<Message, Error>>(16);
+        let filter = MessageFilter {
+            job_id_filters: Default::default(),
+            client_sessionid,
+        };
+        let filter_send = filter.clone();
+        
+        tokio::spawn(async move {
+            while let Some(res) = source.next().await {
+                match res {
+                    Ok(message) => match message {
+                        tungstenite::Message::Binary(buffer) => {
+                            // if let Some((_, tx)) = filter_send
+                            //     .job_id_filters
+                            //     .remove(&message.header.target_job_id)
+                            // {
+                            //     tx.send(message).ok();
+                            // } else {
+                            //     rest_tx.send(Ok(message)).await.ok();
+                            // }
+                            if let Err(error) = rest_tx.send(Ok(Message { })).await {
+                                break;
+                            }
+                        },
+                        other => {
+                            // log::debug!("Websocket received message with type other than binary from {}", cm_server_read.endpoint);
+                        },
+                    },
+                    Err(error) => {
+                        
+                    },
+                }
+            }
+        });
+        
+        (filter, rx)
+    }
 }
 
 #[derive(Debug)]
@@ -82,7 +123,9 @@ pub struct WebSocketCMTransport {
     writer: Option<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>>,
     reader_task: Option<JoinHandle<()>>,
     jobs: HashMap<u64, (ResponseSender, JoinHandle<()>)>,
-    client_sessionid: i32,
+    // filter: Arc<MessageFilter>,
+    client_sessionid: Arc<AtomicI32>,
+    cm_list: Arc<tokio::sync::Mutex<CmListCache>>,
 }
 
 pub struct Message {
@@ -100,43 +143,49 @@ impl WebSocketCMTransport {
             writer: None,
             reader_task: None,
             jobs: HashMap::new(),
-            client_sessionid: 0,
+            // filter: Arc::new(MessageFilter::new()),
+            client_sessionid: Arc::new(AtomicI32::new(0)),
+            cm_list: Arc::new(tokio::sync::Mutex::new(CmListCache::new()))
         }
     }
     
-    async fn send_request<T, D>(
+    pub async fn send_request<'a, Msg>(
         &mut self,
-        request: ApiRequest2,
-        body: &T,
-    ) -> Result<D, Error>
+        msg: Msg,
+        access_token: Option<String>,
+        headers: Option<HeaderMap>,
+        body: &'a [u8],
+    ) -> Result<Vec<u8>, Error> 
     where
-        T: Serialize,
-        D: DeserializeOwned,
+        Msg: ApiRequest,
+        <Msg as ApiRequest>::Response: Send,
     {
         let mut attempts = 0;
         // todo handle errors
         self.send_message(
             EMsg::ServiceMethodCallFromClientNonAuthed,
+            msg,
             body,
-            Some(request.target_name()),
+            Some(Msg::NAME),
         ).await
     }
     
-    async fn send_message<T, D>(
+    async fn send_message<'a, Msg>(
         &mut self,
         emsg: EMsg,
-        body: &T,
-        service_method_name: Option<String>,
-    ) -> Result<D, Error>
+        msg: Msg,
+        body: &'a [u8],
+        service_method_name: Option<&'static str>,
+    ) -> Result<Vec<u8>, Error>
     where
-        T: Serialize,
-        D: DeserializeOwned,
+        Msg: ApiRequest,
+        <Msg as ApiRequest>::Response: Send,
     {
         // make sure websocket is connected
         
         let mut proto_header = CMsgProtoBufHeader::default();
         let client_sessionid = if emsg != EMsg::ServiceMethodCallFromClientNonAuthed {
-            self.client_sessionid
+            self.client_sessionid.load(Ordering::Relaxed)
         } else {
             0
         };
@@ -152,7 +201,7 @@ impl WebSocketCMTransport {
             jobid_buffer[0] = jobid_buffer[0] & 0x7f;
             
             if let Some(target_job_name) = service_method_name {
-                proto_header.set_target_job_name(target_job_name);
+                proto_header.set_target_job_name(target_job_name.to_string());
             }
             
             proto_header.set_realm(1);
@@ -161,9 +210,9 @@ impl WebSocketCMTransport {
             let jobid = jobid_buffer_reader.read_u64::<BigEndian>()?;
             
             proto_header.set_jobid_source(jobid);
-
+            
             let timeout = tokio::spawn(async_std::task::sleep(std::time::Duration::from_secs(5)));
-
+            
             self.jobs.insert(jobid, (tx, timeout));
         } else {
             // There's no response
@@ -172,41 +221,33 @@ impl WebSocketCMTransport {
         }
 
         let mut encoded_proto_header = Vec::new();
-
+        
         proto_header.write_to_vec(&mut encoded_proto_header)?;
-
-        let mut header = [0u8; 8];
-        // todo write these bytes
-        let emsg = emsg as u32 | PROTO_MASK >> 0;
+        
+        let mut header: Vec<u8> = Vec::new();
+        let emsg = (emsg as u32 | PROTO_MASK) >> 0;
         let header_length = encoded_proto_header.len() as u32;
-
+        
+        // 4
+        header.write_u32::<LittleEndian>(emsg)?;
+        // 8
+        header.write_u32::<LittleEndian>(header_length)?;
+        
         log::debug!("Send {emsg:?}");
-
-        // let mut writer = Cursor::new(header);
         
-        // writer.
         
-        todo!()
+        Ok(Vec::new())
     }
     
     async fn connect_to_cm(&mut self) -> Result<mpsc::Receiver<Message>, Error> {
-        // todo connect to ws
-        let mut cm_list = self.get_cm_list().await?
-            .into_iter()
-            .filter(|cm_server| {
-                cm_server.r#type == "websockets" &&
-                cm_server.realm == "steamglobal"
-            })
-            .collect::<Vec<_>>();
-        
-        cm_list.truncate(20);
-        
-        // pick a random server
-        let cm_server = cm_list
-            .choose(&mut rand::thread_rng())
-            .ok_or(Error::NoCmServer)?;
-        let uri = format!("wss://{}/cmsocket/", cm_server.endpoint);
-        let uri = uri.parse::<Uri>()?;
+        let cm_server = {
+            let mut cm_list = self.cm_list.lock().await;
+            
+            cm_list.update().await?;
+            // pick a random server
+            cm_list.pick_random_websocket_server()
+        }.ok_or(Error::NoCmServer)?;
+        let uri = format!("wss://{}/cmsocket/", cm_server.endpoint).parse::<Uri>()?;
         let request = Request::builder()
             .uri(uri)
             .body(())?;
@@ -258,8 +299,8 @@ impl WebSocketCMTransport {
 
         let header = CMsgProtoBufHeader::parse_from_bytes(&header_buffer)?;
         let client_sessionid = header.get_client_sessionid();
-
-        if client_sessionid != 0 && client_sessionid != self.client_sessionid {
+        
+        if client_sessionid != 0 && client_sessionid != self.client_sessionid.load(Ordering::Relaxed) {
 
         }
 
@@ -277,7 +318,7 @@ impl WebSocketCMTransport {
                 let eresult =  EResult::try_from(header.get_eresult())
                     .map_err(|_| Error::UnknownEResult(header.get_eresult()))?;
                 // todo maybe handle propogate the error
-                let _ = sender.send(Ok(ApiResponse {
+                let _ = sender.send(Ok(ApiResponse2 {
                     eresult: Some(eresult),
                     error_message: None,
                     body: Some(body_buffer),
@@ -305,20 +346,20 @@ impl WebSocketCMTransport {
 				// }
             },
             EMsg::Multi => {
-
+            
             },
             emsg => {
                 log::debug!("Received unexpected message: {emsg:?}");
             },
         }
-
+        
         todo!()
     }
-
+    
     pub async fn process_multi_message(&mut self, body_buffer: &Vec<u8>) -> Result<(), Error> {
         let body = CMsgMulti::parse_from_bytes(body_buffer)?;
         let payload = body.get_message_body();
-
+        
         if body.get_size_unzipped() != 0 {
             // todo decompress from zlib
             // We need to decompress it
@@ -327,89 +368,22 @@ impl WebSocketCMTransport {
 			// 		if (err) {
 			// 			return reject(err);
 			// 		}
-
+			
 			// 		resolve(unzipped);
 			// 	});
 			// });
         }
-
+        
         let mut cursor = Cursor::new(payload);
-
+        
         while let Ok(chunk_size) = cursor.read_u32::<LittleEndian>() {
             let mut chunk_buffer: Vec<u8> = vec![0; chunk_size as usize];
-
+            
             cursor.read(&mut chunk_buffer)?;
-
+            
             self.handle_ws_message(chunk_buffer)?;
         }
-
+        
         Ok(())
-    }
-
-    async fn get_cm_list(&self) -> Result<Vec<CmServer>, Error> {
-        // todo handle errors
-        self.fetch_cm_list().await
-    }
-    
-    async fn fetch_cm_list(&self) -> Result<Vec<CmServer>, Error> {
-        let url = "https://api.steampowered.com/ISteamDirectory/GetCMListForConnect/v0001/?cellid=0&format=vdf";
-        let mut headers = HeaderMap::new();
-        
-        headers.append(USER_AGENT, HeaderValue::from_str("Valve/Steam HTTP Client 1.0")?);
-        headers.append(ACCEPT_CHARSET,HeaderValue::from_str("ISO-8859-1,utf-8,*;q=0.7")?);
-        headers.append(ACCEPT, HeaderValue::from_str("text/html,*/*;q=0.9")?);
-        
-        let text = self.client.get(url)
-            .headers(headers)
-            .send().await?
-            .text().await?;
-        
-        parse_cm_list(&text)
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct CmBody {
-    #[serde(default)]
-    serverlist: Option<HashMap<usize, CmServer>>,
-    #[serde(default)]
-    success: i32,
-    #[serde(default)]
-    message: String,
-}
-
-fn parse_cm_list(text: &str) -> Result<Vec<CmServer>, Error> {
-    let body = keyvalues_serde::from_str::<CmBody>(&text)?;
-    
-    if body.success != 1 {
-        return Err(Error::CmServerListResponseMessage(body.message));
-    }
-    
-    let mut serverlist = body.serverlist
-        .ok_or(Error::NoCmServerList)?
-        .into_iter()
-        .map(|(_, cmserver)| cmserver)
-        .collect::<Vec<_>>();
-    
-    if serverlist.is_empty() {
-        return Err(Error::NoCmServerList);
-    }
-    
-    // lowest to highest by wtd_load (closest servers will appear first)
-    serverlist.sort_by(|a, b| a.wtd_load.cmp(&b.wtd_load));
-    
-    Ok(serverlist)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn parse_vdf() {
-        let text = include_str!("./fixtures/cmlist.vdf");
-        let serverlist = parse_cm_list(&text).unwrap();
-        
-        assert_eq!(serverlist.first().unwrap().endpoint, "ext1-ord1.steamserver.net:27017");
     }
 }

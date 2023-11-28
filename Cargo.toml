@@ -12,6 +12,7 @@ url = "2.4.1"
 tokio = { version = "1", features = ["rt"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = { version = "1.0", features = ["raw_value"] }
+serde_qs = "0.12.0"
 chrono = { version = "^0.4.27", features = ["serde"] }
 thiserror = "1.0.30"
 log = "0.4.0"
@@ -19,6 +20,7 @@ protobuf = "=2.24.1"
 steam-session-proto = { version = "0.1.0", path = "./protobuf" }
 base64 = "0.21.5"
 lazy-regex = "3.1.0"
+lazy_static = "1.4.0"
 sha256 = "1.4.0"
 async-std = "1.12.0"
 tokio-tungstenite = "0.20.1"
@@ -27,6 +29,7 @@ byteorder = "1.5.0"
 http = "1.0.0"
 keyvalues-serde = "0.2.0"
 num_enum = "0.7.1"
+dashmap = "5.5.3"
 
 # maybe not needed
 async-fs = "1.5.0"

@@ -3,7 +3,7 @@ use crate::enums::{
     AuthTokenPlatformType,
     AuthSessionGuardType,
     AuthSessionSecurityHistory,
-    SessionPersistence,
+    SessionPersistence, EOSType,
 };
 use crate::transports::WebSocketCMTransport;
 use std::net::IpAddr;
@@ -27,16 +27,20 @@ pub enum ConnectionType {
     Agent(Client),
 }
 
-// todo
 #[derive(Debug, Clone)]
-pub struct CAuthentication_DeviceDetails {}
+pub struct DeviceDetails {
+    pub device_friendly_name: &'static str,
+    pub platform_type: AuthTokenPlatformType,
+    pub os_type: Option<EOSType>,
+    pub gaming_device_type: Option<u32>,
+}
 
 #[derive(Debug)]
 pub struct LoginSessionOptions {
     // todo use transport
     pub transport: Option<u8>,
     pub connnection_type: Option<ConnectionType>,
-    pub user_agent: Option<String>,
+    pub user_agent: Option<&'static str>,
     pub machine_id: Option<Vec<u8>>,
 }
 
@@ -113,9 +117,9 @@ pub struct ApproveAuthSessionRequest<'a> {
 
 #[derive(Debug, Clone)]
 pub struct PlatformData {
+    pub website_id: &'static str,
     pub headers: HeaderMap,
-    pub website_id: String,
-    pub device_details: CAuthentication_DeviceDetails,
+    pub device_details: DeviceDetails,
 }
 
 #[derive(Debug)]
@@ -123,7 +127,7 @@ pub struct AuthenticationClientConstructorOptions {
     pub platform_type: AuthTokenPlatformType,
     pub transport: WebSocketCMTransport,
     pub client: Client,
-    pub user_agent: String,
+    pub user_agent: &'static str,
     pub machine_id: Option<Vec<u8>>,
 }
 

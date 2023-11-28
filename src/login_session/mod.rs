@@ -71,7 +71,7 @@ impl LoginSession {
                 client,
                 machine_id: options.machine_id,
                 transport,
-                user_agent: options.user_agent.unwrap_or_else(|| USER_AGENT.into()),
+                user_agent: options.user_agent.unwrap_or_else(|| USER_AGENT),
             }),
             steam_guard_code: None,
             steam_guard_machine_token: None,
