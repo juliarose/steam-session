@@ -127,7 +127,6 @@ pub struct WebSocketCMTransport {
     // todo tungsten websocket
     websocket: u8,
     writer: tokio::sync::mpsc::Sender<Message>,
-    // jobs: HashMap<u64, (ResponseSender, JoinHandle<()>)>,
     filter: Arc<MessageFilter>,
     client_sessionid: Arc<AtomicI32>,
 }
@@ -145,7 +144,7 @@ impl WebSocketCMTransport {
     }
 
     pub fn new(
-        mut source: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+        source: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
         writer: tokio::sync::mpsc::Sender<Message>,
     ) -> Self {
         let client_sessionid = Arc::new(AtomicI32::new(0));
@@ -161,9 +160,6 @@ impl WebSocketCMTransport {
             local_address: None,
             websocket: 0,
             writer,
-            // writer: None,
-            // reader_task: None,
-            // jobs: HashMap::new(),
             filter: Arc::new(filter),
             client_sessionid,
         }
