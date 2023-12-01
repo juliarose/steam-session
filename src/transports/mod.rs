@@ -1,13 +1,13 @@
 use crate::enums::EResult;
 
 pub mod web_api;
-pub mod web_socket_cm;
+pub mod websocket;
 pub mod cm_server;
 pub mod cm_list_cache;
 pub mod helpers;
 
 use reqwest::header::HeaderMap;
-pub use web_socket_cm::WebSocketCMTransport;
+pub use websocket::WebSocketCMTransport;
 
 #[derive(Debug, Clone)]
 pub struct ApiResponse2 {

@@ -13,8 +13,8 @@ use reqwest::Client;
 use reqwest::header::{HeaderMap, USER_AGENT, InvalidHeaderValue, HeaderValue, ORIGIN, REFERER, COOKIE};
 use serde::Serialize;
 use tokio::task::JoinHandle;
-use crate::transports::{WebSocketCMTransport, ApiRequest2};
-use crate::transports::web_socket_cm::Error as WebSocketCmError;
+use crate::transports::WebSocketCMTransport;
+use crate::transports::websocket::Error as WebSocketCmError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -80,7 +80,7 @@ impl AuthenticationClient {
             msg,
             access_token,
             Some(headers),
-            &[],
+            Vec::new(),
         ).await?;
         
         Ok(())

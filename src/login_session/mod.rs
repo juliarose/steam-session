@@ -226,5 +226,5 @@ pub enum LoginSessionError {
     #[error("No Steam Guard code is needed for this login attempt")]
     LoginAttemptSteamGuardNotRequired,
     #[error("Websocket CM: {}", .0)]
-    WebSocketCM(#[from] crate::transports::web_socket_cm::Error),
+    WebSocketCM(#[from] crate::transports::websocket::Error),
 }
