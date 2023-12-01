@@ -30,6 +30,7 @@ http = "1.0.0"
 keyvalues-serde = "0.2.0"
 num_enum = "0.7.1"
 dashmap = "5.5.3"
+bytes = "1.5.0"
 
 # maybe not needed
 async-fs = "1.5.0"

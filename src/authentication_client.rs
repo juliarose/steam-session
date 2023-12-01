@@ -75,11 +75,9 @@ impl AuthenticationClient {
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send,
     {
-        let headers = self.get_platform_data()?.headers;
+        let _headers = self.get_platform_data()?.headers;
         let result = self.transport.send_request(
             msg,
-            access_token,
-            Some(headers),
             Vec::new(),
         ).await?;
         

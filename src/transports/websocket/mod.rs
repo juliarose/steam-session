@@ -6,6 +6,7 @@ use message_filter::MessageFilter;
 pub use error::Error;
 pub use message::Message;
 
+use crate::message::ApiResponseMessage;
 use crate::enums::EMsg;
 use crate::proto::steammessages_base::CMsgProtoBufHeader;
 use crate::api_method::ApiRequest;
@@ -19,12 +20,12 @@ use protobuf::Message as ProtoMessage;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use reqwest::Client;
-use reqwest::header::HeaderMap;
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use tokio::sync::mpsc;
 use rand::Rng;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use tokio::time::timeout;
 use tokio_tungstenite::{tungstenite, connect_async};
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream};
 use tokio_tungstenite::tungstenite::http::uri::Uri;
@@ -33,9 +34,23 @@ use tokio_tungstenite::tungstenite::http::request::Request;
 pub const PROTOCOL_VERSION: u32 = 65580;
 pub const PROTO_MASK: u32 = 0x80000000;
 
+async fn wait_for_response<Msg>(
+    rx: oneshot::Receiver<Result<ApiResponse2, Error>>,
+) -> Result<Msg::Response, Error>
+where
+    Msg: ApiRequest,
+    <Msg as ApiRequest>::Response: Send,
+{
+    // timeout(std::time::Duration::from_secs(5), rx)
+    //     .await
+    //     .map_err(|_| Error::Timeout)???
+    //     .into_message::<ApiResponseMessage>()?
+    //     .into_response::<Msg>()
+    todo!()
+}
+
 #[derive(Debug)]
 struct Agent {}
-
 
 #[derive(Debug)]
 pub struct WebSocketCMTransport {
@@ -83,22 +98,34 @@ impl WebSocketCMTransport {
     pub async fn send_request<'a, Msg>(
         &mut self,
         msg: Msg,
-        access_token: Option<String>,
-        headers: Option<HeaderMap>,
         body: Vec<u8>,
-    ) -> Result<Option<oneshot::Receiver<Result<ApiResponse2, Error>>>, Error> 
+    ) -> Result<Option<()>, Error> 
     where
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send,
     {
         let mut attempts = 0;
         // todo handle errors
-        self.send_message(
+        if let Some(jobid) = self.send_message(
             EMsg::ServiceMethodCallFromClientNonAuthed,
             msg,
             body,
             Some(Msg::NAME),
-        ).await
+        ).await? {
+            let filter_rx = self.filter.on_job_id(jobid);
+            let (
+                tx,
+                rx,
+            ) = oneshot::channel::<Result<Msg::Response, Error>>();
+            
+            tokio::spawn(async move {
+                tx.send(wait_for_response::<Msg>(filter_rx).await).ok();
+            });
+            
+            Ok(Some(()))
+        } else {
+            Ok(None)
+        }
     }
     
     async fn send_message<'a, Msg>(
@@ -107,13 +134,10 @@ impl WebSocketCMTransport {
         msg: Msg,
         mut body: Vec<u8>,
         service_method_name: Option<&'static str>,
-    ) -> Result<Option<oneshot::Receiver<Result<ApiResponse2, Error>>>, Error>
+    ) -> Result<Option<u64>, Error>
     where
         Msg: ApiRequest,
-        <Msg as ApiRequest>::Response: Send,
     {
-        // make sure websocket is connected
-        
         let mut proto_header = CMsgProtoBufHeader::default();
         let client_sessionid = if emsg != EMsg::ServiceMethodCallFromClientNonAuthed {
             self.client_sessionid.load(Ordering::Relaxed)
@@ -124,7 +148,7 @@ impl WebSocketCMTransport {
         proto_header.set_steamid(0);
         proto_header.set_client_sessionid(client_sessionid);
         
-        let rx = if emsg == EMsg::ServiceMethodCallFromClientNonAuthed {
+        let jobid = if emsg == EMsg::ServiceMethodCallFromClientNonAuthed {
             let mut jobid_buffer = rand::thread_rng().gen::<[u8; 8]>();
             
             jobid_buffer[0] = jobid_buffer[0] & 0x7f;
@@ -143,7 +167,7 @@ impl WebSocketCMTransport {
             // let timeout = tokio::spawn(async_std::task::sleep(std::time::Duration::from_secs(5)));
             
             // self.jobs.insert(jobid, (tx, timeout));
-            Some(self.filter.on_job_id(jobid))
+            Some(jobid)
         } else {
             // There's no response
             // todo maybe propogate this error
@@ -173,7 +197,7 @@ impl WebSocketCMTransport {
         
         self.websocket_write.send(message).await?;
         
-        Ok(rx)
+        Ok(jobid)
     }
 }
 

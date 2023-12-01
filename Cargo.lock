@@ -1593,6 +1593,7 @@ dependencies = [
  "async-std",
  "base64",
  "byteorder",
+ "bytes",
  "chrono",
  "dashmap",
  "futures",

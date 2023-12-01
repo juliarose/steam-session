@@ -27,4 +27,10 @@ pub enum Error {
     UnknownEResult(i32),
     #[error("No response")]
     NoResponse,
+    #[error("Response timed out")]
+    Timeout,
+    #[error("Wrong service method: expected {}; got {}", .0, .1)]
+    DifferentServiceMethod(&'static str, String),
+    #[error("Receiver error: {}", .0)]
+    RecvError(#[from] tokio::sync::oneshot::error::RecvError),
 }
