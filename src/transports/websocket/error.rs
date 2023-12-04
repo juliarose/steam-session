@@ -1,4 +1,5 @@
 use crate::transports::cm_list_cache;
+use crate::enums::EResult;
 use protobuf::ProtobufError;
 use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::http::uri::InvalidUri;
@@ -33,4 +34,10 @@ pub enum Error {
     DifferentServiceMethod(&'static str, String),
     #[error("Receiver error: {}", .0)]
     RecvError(#[from] tokio::sync::oneshot::error::RecvError),
+    #[error("Response returned empty body")]
+    NoBodyInResponse,
+    #[error("Response error: {}", .0)]
+    ResponseError(String),
+    #[error("Received ClientLogOnResponse with result: {:?} (try another CM)", .0)]
+    ClientLogOnResponseTryAnotherCM(EResult),
 }

@@ -3,7 +3,7 @@ use super::PROTO_MASK;
 use crate::enums::{EMsg, EResult};
 use crate::proto::steammessages_base::{CMsgProtoBufHeader, CMsgMulti};
 use crate::proto::steammessages_clientserver_login::CMsgClientLogonResponse;
-use crate::transports::ApiResponse2;
+use crate::transports::ApiResponseBody;
 use std::io::{Cursor, Read};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -18,12 +18,12 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream};
 
-pub type ResponseSender = oneshot::Sender<Result<ApiResponse2, Error>>;
-pub type ResponseReceiver = oneshot::Receiver<Result<ApiResponse2, Error>>;
+pub type ResponseSender = oneshot::Sender<Result<ApiResponseBody, Error>>;
+pub type ResponseReceiver = oneshot::Receiver<Result<ApiResponseBody, Error>>;
 
 #[derive(Debug, Clone)]
 pub struct MessageFilter {
-    job_id_filters: Arc<DashMap<u64, oneshot::Sender<Result<ApiResponse2, Error>>>>,
+    job_id_filters: Arc<DashMap<u64, oneshot::Sender<Result<ApiResponseBody, Error>>>>,
     client_sessionid: Arc<AtomicI32>,
 }
 
@@ -63,7 +63,7 @@ impl MessageFilter {
         (filter, rx)
     }
     
-    pub fn on_job_id(&self, id: u64) -> oneshot::Receiver<Result<ApiResponse2, Error>> {
+    pub fn on_job_id(&self, id: u64) -> oneshot::Receiver<Result<ApiResponseBody, Error>> {
         let (tx, rx) = oneshot::channel();
         self.job_id_filters.insert(id, tx);
         rx
@@ -101,6 +101,16 @@ async fn process_multi_message(filter: &MessageFilter, body_buffer: &Vec<u8>) ->
     Ok(())
 }
 
+#[derive(Debug)]
+struct MessageData {
+    eresult: EResult,
+    emsg: EMsg,
+    body: Vec<u8>,
+    header: CMsgProtoBufHeader,
+    jobid_target: u64,
+    client_sessionid: i32,
+}
+
 async fn handle_ws_message(filter: &MessageFilter, msg: Vec<u8>) -> Result<(), Error> {
     let mut cursor = Cursor::new(msg.as_slice());
     let raw_emsg = cursor.read_u32::<LittleEndian>()?;
@@ -128,6 +138,8 @@ async fn handle_ws_message(filter: &MessageFilter, msg: Vec<u8>) -> Result<(), E
     let emsg = EMsg::try_from(raw_emsg)
         .map_err(|_| Error::UnknownEMsg(raw_emsg))?;
     let jobid_target = header.get_jobid_target();
+    let eresult =  EResult::try_from(header.get_eresult())
+        .map_err(|_| Error::UnknownEResult(header.get_eresult()))?;
     
     // I'm not sure when this would be 0
     log::debug!("handle_ws_message jobid {jobid_target}");
@@ -137,10 +149,8 @@ async fn handle_ws_message(filter: &MessageFilter, msg: Vec<u8>) -> Result<(), E
             .job_id_filters
             .remove(&jobid_target)
         {
-            let eresult =  EResult::try_from(header.get_eresult())
-                .map_err(|_| Error::UnknownEResult(header.get_eresult()))?;
             // todo maybe propogate the error
-            let _ = tx.send(Ok(ApiResponse2 {
+            let _ = tx.send(Ok(ApiResponseBody {
                 eresult: Some(eresult),
                 error_message: None,
                 body: Some(body_buffer),
@@ -159,6 +169,9 @@ async fn handle_ws_message(filter: &MessageFilter, msg: Vec<u8>) -> Result<(), E
                 .map_err(|_| Error::UnknownEResult(logon_response.get_eresult()))?;
             
             log::debug!("Received ClientLogOnResponse with result: {eresult:?}");
+            // websocket connection should be closed
+            
+            return Err(Error::ClientLogOnResponseTryAnotherCM(eresult));
         },
         EMsg::Multi => {
             process_multi_message(filter, &body_buffer).await?;

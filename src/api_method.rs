@@ -1,4 +1,5 @@
 use protobuf::{Message, ProtobufResult};
+use steam_session_proto::steammessages_clientserver_login::CMsgClientHello;
 use std::fmt::Debug;
 use std::io::Read;
 use crate::proto::steammessages_auth_steamclient::{
@@ -33,7 +34,7 @@ macro_rules! api_method {
             const NAME: &'static str = concat!($interface, ".", $method, "#", $version);
             type Response = $res;
         }
-
+        
         impl ApiResponse for $res {
             fn parse_from_reader(reader: &mut dyn Read) -> ProtobufResult<Self> {
                 <Self as Message>::parse_from_reader(reader)
@@ -51,4 +52,5 @@ macro_rules! api_method {
     };
 }
 
+api_method!(("Client", "Hello", 1) => CMsgClientHello);
 api_method!(("Authentication", "GenerateForAppAccessToken", 1) => CAuthentication_AccessToken_GenerateForApp_Request, CAuthentication_AccessToken_GenerateForApp_Response);

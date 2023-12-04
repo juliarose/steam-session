@@ -78,7 +78,6 @@ impl AuthenticationClient {
         let _headers = self.get_platform_data()?.headers;
         let result = self.transport.send_request(
             msg,
-            Vec::new(),
         ).await?;
         
         Ok(())

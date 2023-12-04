@@ -5,13 +5,13 @@ mod message;
 use message_filter::MessageFilter;
 pub use error::Error;
 pub use message::Message;
+use steam_session_proto::steammessages_clientserver_login::CMsgClientHello;
 
-use crate::message::ApiResponseMessage;
 use crate::enums::EMsg;
 use crate::proto::steammessages_base::CMsgProtoBufHeader;
 use crate::api_method::ApiRequest;
 use crate::transports::cm_list_cache::CmListCache;
-use crate::transports::ApiResponse2;
+use crate::transports::ApiResponseBody;
 use std::io::Cursor;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -22,7 +22,6 @@ use futures::{SinkExt, StreamExt};
 use reqwest::Client;
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
-use tokio::sync::mpsc;
 use rand::Rng;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use tokio::time::timeout;
@@ -35,18 +34,16 @@ pub const PROTOCOL_VERSION: u32 = 65580;
 pub const PROTO_MASK: u32 = 0x80000000;
 
 async fn wait_for_response<Msg>(
-    rx: oneshot::Receiver<Result<ApiResponse2, Error>>,
+    rx: oneshot::Receiver<Result<ApiResponseBody, Error>>,
 ) -> Result<Msg::Response, Error>
 where
     Msg: ApiRequest,
     <Msg as ApiRequest>::Response: Send,
 {
-    // timeout(std::time::Duration::from_secs(5), rx)
-    //     .await
-    //     .map_err(|_| Error::Timeout)???
-    //     .into_message::<ApiResponseMessage>()?
-    //     .into_response::<Msg>()
-    todo!()
+    timeout(std::time::Duration::from_secs(5), rx)
+        .await
+        .map_err(|_| Error::Timeout)???
+        .into_response::<Msg>()
 }
 
 #[derive(Debug)]
@@ -59,7 +56,6 @@ pub struct WebSocketCMTransport {
     agent: Agent,
     local_address: Option<String>,
     websocket_write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
-    writer: tokio::sync::mpsc::Sender<Message>,
     filter: Arc<MessageFilter>,
     client_sessionid: Arc<AtomicI32>,
 }
@@ -67,14 +63,22 @@ pub struct WebSocketCMTransport {
 impl WebSocketCMTransport {
     pub async fn connect() -> Result<WebSocketCMTransport, Error> {
         let cm_list = Arc::new(tokio::sync::Mutex::new(CmListCache::new()));
-        let transport = connect_to_cm(&cm_list).await?;
+        let mut transport = connect_to_cm(&cm_list).await?;
+        let mut hello = CMsgClientHello::new();
+        
+        hello.set_protocol_version(PROTOCOL_VERSION);
+        
+        transport.send_message(
+            EMsg::ClientHello,
+            hello,
+            None,
+        ).await?;
         
         Ok(transport)
     }
     
     pub fn new(
         source: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-        writer: tokio::sync::mpsc::Sender<Message>,
         websocket_write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
     ) -> Self {
         let client_sessionid = Arc::new(AtomicI32::new(0));
@@ -89,7 +93,6 @@ impl WebSocketCMTransport {
             agent: Agent {},
             local_address: None,
             websocket_write,
-            writer,
             filter: Arc::new(filter),
             client_sessionid,
         }
@@ -98,18 +101,14 @@ impl WebSocketCMTransport {
     pub async fn send_request<'a, Msg>(
         &mut self,
         msg: Msg,
-        body: Vec<u8>,
     ) -> Result<Option<()>, Error> 
     where
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send,
     {
-        let mut attempts = 0;
-        // todo handle errors
         if let Some(jobid) = self.send_message(
             EMsg::ServiceMethodCallFromClientNonAuthed,
             msg,
-            body,
             Some(Msg::NAME),
         ).await? {
             let filter_rx = self.filter.on_job_id(jobid);
@@ -132,12 +131,12 @@ impl WebSocketCMTransport {
         &mut self,
         emsg: EMsg,
         msg: Msg,
-        mut body: Vec<u8>,
         service_method_name: Option<&'static str>,
     ) -> Result<Option<u64>, Error>
     where
         Msg: ApiRequest,
     {
+        let mut body = msg.write_to_bytes()?;
         let mut proto_header = CMsgProtoBufHeader::default();
         let client_sessionid = if emsg != EMsg::ServiceMethodCallFromClientNonAuthed {
             self.client_sessionid.load(Ordering::Relaxed)
@@ -164,14 +163,8 @@ impl WebSocketCMTransport {
             
             proto_header.set_jobid_source(jobid);
             
-            // let timeout = tokio::spawn(async_std::task::sleep(std::time::Duration::from_secs(5)));
-            
-            // self.jobs.insert(jobid, (tx, timeout));
             Some(jobid)
         } else {
-            // There's no response
-            // todo maybe propogate this error
-            // let _  = tx.send(Err(Error::NoResponse));
             None
         };
         let mut encoded_proto_header = Vec::new();
@@ -215,10 +208,8 @@ async fn connect_to_cm(cm_list: &Arc<tokio::sync::Mutex<CmListCache>>) -> Result
         .body(())?;
     let (ws_stream, _) = connect_async(request).await?;
     let (ws_write, ws_read) = ws_stream.split();
-    let (write, read) = mpsc::channel::<Message>(100);
     let transport = WebSocketCMTransport::new(
         ws_read,
-        write,
         ws_write,
     );
     
