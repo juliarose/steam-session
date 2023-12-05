@@ -19,7 +19,6 @@ use chrono::Duration;
 use protobuf::Message as ProtoMessage;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
-use reqwest::Client;
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use rand::Rng;
@@ -47,14 +46,8 @@ where
 }
 
 #[derive(Debug)]
-struct Agent {}
-
-#[derive(Debug)]
 pub struct WebSocketCMTransport {
     connection_timeout: Duration,
-    client: Client,
-    agent: Agent,
-    local_address: Option<String>,
     websocket_write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
     filter: Arc<MessageFilter>,
     client_sessionid: Arc<AtomicI32>,
@@ -89,9 +82,6 @@ impl WebSocketCMTransport {
         
         Self {
             connection_timeout: Duration::seconds(10),
-            client: Client::new(),
-            agent: Agent {},
-            local_address: None,
             websocket_write,
             filter: Arc::new(filter),
             client_sessionid,
