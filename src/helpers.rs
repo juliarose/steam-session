@@ -1,4 +1,4 @@
-
+use lazy_regex::regex_replace_all;
 
 pub const USER_AGENT: &str = "linux x86_64"; 
 
@@ -20,25 +20,56 @@ pub fn decode_qr_url(url: &str) -> Option<DecodedQr> {
     None
 }
 
-pub fn decode_jwt(jwt: &str) -> Option<u8> {
+#[derive(Debug, thiserror::Error)]
+pub enum DecodeError {
+    #[error("Invalid JWT")]
+    InvalidJWT,
+    #[error("Error decoding base64: {}", .0)]
+    Base64(#[from] base64::DecodeError),
+    #[error("JSON parse error: {}", .0)]
+    Json(#[from] serde_json::Error),
+    #[error("Invalid SteamID: {}", .0)]
+    InvalidSteamID(String),
+}
+
+use base64::{Engine as _, engine::general_purpose};
+use steamid_ng::SteamID;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+pub struct JWT {
+    pub steamid: SteamID,
+    pub audience: Vec<String>,
+}
+
+pub fn decode_jwt(jwt: &str) -> Result<JWT, DecodeError> {
     let mut parts = jwt.split('.');
     
-    parts.next()?;
-
-    let part = parts.next();
-
-    parts.next()?;
-
+    parts.next().ok_or(DecodeError::InvalidJWT)?;
+    
+    let part = parts.next().ok_or(DecodeError::InvalidJWT)?;
+    
+    parts.next().ok_or(DecodeError::InvalidJWT)?;
+    
     if parts.next().is_some() {
         // invalid
-        return None;
+        return Err(DecodeError::InvalidJWT);
     }
-//     let standardBase64 = parts[1].replace(/-/g, '+')
-//     .replace(/_/g, '/');
-
-//     return JSON.parse(Buffer.from(standardBase64, 'base64').toString('utf8'));
-
-    Some(0)
+    
+    let mut standard_base64 = String::with_capacity(part.len());
+    
+    for ch in part.chars() {
+        match ch {
+            '-' => standard_base64.push('+'),
+            '_' => standard_base64.push('/'),
+            ch => standard_base64.push(ch),
+        }
+    }
+    
+    let decoded = general_purpose::STANDARD_NO_PAD.decode(standard_base64)?;
+    let jwt = serde_json::from_slice::<JWT>(&decoded)?;
+    
+    Ok(jwt)
 }
 
 pub fn is_jwt_valid_for_audience(
@@ -46,16 +77,15 @@ pub fn is_jwt_valid_for_audience(
     audience: &str,
     steamid: Option<&str>,
 ) -> bool {
-    if let Some(decoded_token) = decode_jwt(jwt) {
-        // // Check if the steamid matches
-        // if (steamId && decodedToken.sub != steamId) {
-        //     return false;
-        // }
-
-        // return (decodedToken.aud || []).includes(audience);
+    if let Ok(decoded) = decode_jwt(jwt) {
+        if let Some(steamid) = steamid {
+            if u64::from(decoded.steamid).to_string() != steamid {
+                return false;
+            }
+        }
+        
+        return decoded.audience.iter().any(|a| a == audience);
     }
-
     
-
     false
 }

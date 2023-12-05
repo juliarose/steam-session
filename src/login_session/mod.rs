@@ -10,17 +10,13 @@ use crate::interfaces::{
 };
 use crate::types::DateTime;
 use crate::authentication_client::AuthenticationClient;
-use crate::helpers::USER_AGENT;
+use crate::helpers::{USER_AGENT, decode_jwt, self};
 use chrono::Duration;
 use reqwest::Client;
 use steamid_ng::SteamID;
 use tokio::task::JoinHandle;
 
 use crate::transports::WebSocketCMTransport;
-
-// dyn websocket or webapi
-// maybe enum?
-type Transport = u8;
 
 #[derive(Debug)]
 pub struct LoginSession {
@@ -118,15 +114,40 @@ impl LoginSession {
         &self.access_token
     }
 
-    pub fn set_access_token(&mut self, access_token: String) {
+    pub fn set_access_token(&mut self, access_token: String) -> Result<(), LoginSessionError> {
         if access_token.is_empty() {
             self.access_token = None;
-            return;
+            return Ok(());
         }
-    
-    
+        
+        let decoded = decode_jwt(&access_token)?;
+        
+        if decoded.audience.iter().any(|a| a == "derive") {
+            return Err(LoginSessionError::ExpectedAccessToken);
+        }
+        
+        if let Some(start_session_response) = &self.start_session_response {
+            if let Some(steamid) = start_session_response.steamid {
+                if steamid != decoded.steamid {
+                    return Err(LoginSessionError::TokenIsForDifferentAccount);
+                }
+            }
+        }
+        
+        if let Some(refresh_token) = &self.refresh_token {
+            let decoded_refresh_token = decode_jwt(refresh_token)?;
+            
+            if decoded_refresh_token.steamid != decoded.steamid {
+                return Err(LoginSessionError::AccessTokenBelongsToOtherAccount);
+            }
+        }
+        
+        self.access_token = Some(access_token);
+        self.access_token_set_at = Some(chrono::Utc::now());
+        
+        Ok(())
     }
-
+    
     async fn process_start_session_response(&mut self) {
         self.polling_canceled = Some(false);
 
@@ -227,4 +248,12 @@ pub enum LoginSessionError {
     LoginAttemptSteamGuardNotRequired,
     #[error("Websocket CM: {}", .0)]
     WebSocketCM(#[from] crate::transports::websocket::Error),
+    #[error("Decode error: {}", .0)]
+    Decode(#[from] crate::helpers::DecodeError),
+    #[error("The provided token is a refresh token, not an access token'")]
+    ExpectedAccessToken,
+    #[error("Token is for a different account. To work with a different account, create a new LoginSession.")]
+    TokenIsForDifferentAccount,
+    #[error("This access token belongs to a different account from the set refresh token.")]
+    AccessTokenBelongsToOtherAccount,
 }
