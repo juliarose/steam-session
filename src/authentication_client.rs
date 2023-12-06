@@ -7,6 +7,7 @@ use crate::interfaces::{
     PlatformData,
     DeviceDetails, StartAuthSessionWithCredentialsRequest,
 };
+use rsa::traits::PaddingScheme;
 use steam_session_proto::steammessages_auth_steamclient::{EAuthTokenPlatformType, CAuthentication_DeviceDetails, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request, CAuthentication_GetAuthSessionInfo_Request, CAuthentication_GetPasswordRSAPublicKey_Request, CAuthentication_GetPasswordRSAPublicKey_Response, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response, CAuthentication_AccessToken_GenerateForApp_Response, CAuthentication_BeginAuthSessionViaCredentials_Response, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response, CAuthentication_GetAuthSessionInfo_Response};
 use tokio::sync::oneshot;
 use crate::api_method::ApiRequest;
@@ -18,7 +19,7 @@ use steam_session_proto::steammessages_auth_steamclient::{CAuthentication_Access
 use tokio::task::JoinHandle;
 use crate::transports::WebSocketCMTransport;
 use crate::transports::websocket::Error as WebSocketCmError;
-use rsa::{RsaPublicKey, BigUint};
+use rsa::{RsaPublicKey, Pkcs1v15Encrypt, BigUint};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -38,6 +39,8 @@ pub enum Error {
     RecvError(#[from] tokio::sync::oneshot::error::RecvError),
     #[error("Failed to parse int: {}", .0)]
     BadUint(String),
+    #[error("RSA error: {}", .0)]
+    RSA(#[from] rsa::Error),
 }
 
 #[derive(Debug)]
@@ -204,7 +207,13 @@ impl AuthenticationClient {
             .ok_or_else(|| Error::BadUint(rsa_info.get_publickey_mod().into()))?;
 		let e = BigUint::parse_bytes(rsa_info.get_publickey_exp().as_bytes(), 16)
             .ok_or_else(|| Error::BadUint(rsa_info.get_publickey_exp().into()))?;
-        let key = RsaPublicKey::new(n, e);
+        let key = RsaPublicKey::new(n, e)?;
+        let encrytped_password: Vec<u8> = key.encrypt(
+            &mut rand::thread_rng(),
+            Pkcs1v15Encrypt::default(),
+            password.as_bytes(),
+        )?;
+
         // todo
         // let key = new RSAKey();
 		// key.setPublic(rsaInfo.publickey_mod, rsaInfo.publickey_exp);
