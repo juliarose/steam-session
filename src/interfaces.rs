@@ -1,12 +1,13 @@
 use crate::enums::{
     EResult,
-    AuthTokenPlatformType,
     AuthSessionGuardType,
     AuthSessionSecurityHistory,
-    SessionPersistence, EOSType,
+    EOSType,
 };
 use crate::transports::WebSocketCMTransport;
 use std::net::IpAddr;
+use steam_session_proto::enums::ESessionPersistence;
+use steam_session_proto::steammessages_auth_steamclient::{CAuthentication_DeviceDetails, EAuthTokenPlatformType, EAuthSessionGuardType};
 use steamid_ng::SteamID;
 use url::Url;
 use reqwest::Client;
@@ -30,9 +31,28 @@ pub enum ConnectionType {
 #[derive(Debug, Clone)]
 pub struct DeviceDetails {
     pub device_friendly_name: &'static str,
-    pub platform_type: AuthTokenPlatformType,
+    pub platform_type: EAuthTokenPlatformType,
     pub os_type: Option<EOSType>,
     pub gaming_device_type: Option<u32>,
+}
+
+impl Into<CAuthentication_DeviceDetails> for DeviceDetails {
+    fn into(self) -> CAuthentication_DeviceDetails {
+        let mut msg = CAuthentication_DeviceDetails::new();
+
+        msg.set_device_friendly_name(self.device_friendly_name.into());
+        msg.set_platform_type(self.platform_type);
+
+        if let Some(os_type) = self.os_type {
+            msg.set_os_type(os_type as i32);
+        }
+
+        if let Some(gaming_device_type) = self.gaming_device_type {
+            msg.set_gaming_device_type(gaming_device_type);
+        }
+
+        msg
+    }
 }
 
 #[derive(Debug)]
@@ -63,7 +83,7 @@ pub struct StartAuthSessionResponse {
 pub struct StartLoginSessionWithCredentialsDetails<'a> {
     pub account_name: &'a str,
     pub password: &'a str,
-    pub persistence: Option<SessionPersistence>,
+    pub persistence: Option<ESessionPersistence>,
     pub steam_guard_machine_token: Option<&'a str>,
     pub steam_guard_code: Option<&'a str>,
 }
@@ -76,10 +96,10 @@ pub struct StartSessionResponse<'a> {
 }
 
 pub struct SubmitSteamGuardCodeRequest {
-	pub client_id: String,
-	pub steamid_id: String,
-	pub auth_code: String,
-	pub auth_code_type: AuthSessionGuardType,
+	pub client_id: u64,
+	pub steamid: u64,
+	pub code: String,
+	pub code_type: EAuthSessionGuardType,
 }
 
 #[derive(Debug, Clone)]
@@ -92,13 +112,13 @@ pub struct StartSessionResponseValidAction {
 pub struct AuthSessionInfo<'a> {
     pub ip: &'a str,
     pub location: Location<'a>,
-    pub platform_type: AuthTokenPlatformType,
+    pub platform_type: EAuthTokenPlatformType,
     pub device_friendly_name: &'a str,
     pub version: u32,
     pub login_history: AuthSessionSecurityHistory,
     pub location_mismatch: bool,
     pub high_usage_login: bool,
-    pub requested_persistence: SessionPersistence,
+    pub requested_persistence: ESessionPersistence,
 }
 
 #[derive(Debug, Clone)]
@@ -112,7 +132,7 @@ pub struct Location<'a> {
 pub struct ApproveAuthSessionRequest<'a> {
     pub qr_challenge_url: &'a str,
     pub approve: bool,
-    pub persistence: Option<SessionPersistence>,
+    pub persistence: Option<ESessionPersistence>,
 }
 
 #[derive(Debug, Clone)]
@@ -124,7 +144,7 @@ pub struct PlatformData {
 
 #[derive(Debug)]
 pub struct AuthenticationClientConstructorOptions {
-    pub platform_type: AuthTokenPlatformType,
+    pub platform_type: EAuthTokenPlatformType,
     pub transport: WebSocketCMTransport,
     pub client: Client,
     pub user_agent: &'static str,
@@ -133,16 +153,17 @@ pub struct AuthenticationClientConstructorOptions {
 
 #[derive(Debug, Clone)]
 pub struct StartAuthSessionRequest {
-    pub platform_type: AuthTokenPlatformType,
+    pub platform_type: EAuthTokenPlatformType,
 }
 
 #[derive(Debug, Clone)]
 pub struct StartAuthSessionWithCredentialsRequest {
     pub account_name: String,
     pub encrypted_password: String,
-    pub key_timestamp: String,
-    pub persistence: SessionPersistence,
-    pub platform_type: AuthTokenPlatformType,
+    pub encryption_timestamp: u64,
+    pub remember_login: bool,
+    pub platform_type: EAuthTokenPlatformType,
+    pub persistence: ESessionPersistence,
     pub steam_guard_machine_token: Option<Buffer>,
 }
 
@@ -197,31 +218,26 @@ pub struct PollLoginStatusResponse {
 }
 
 #[derive(Debug, Clone)]
-pub struct GetAuthSessionInfoRequest {
-    pub client_id: String,
-}
-
-#[derive(Debug, Clone)]
 pub struct GetAuthSessionInfoResponse {
     pub ip: String,
     pub geoloc: String,
     pub city: String,
     pub state: String,
-    pub platform_type: AuthTokenPlatformType,
+    pub platform_type: EAuthTokenPlatformType,
     pub device_friendly_name: String,
     pub version: u32,
     pub login_history: AuthSessionSecurityHistory,
     pub location_mismatch: bool,
     pub high_usage_login: bool,
-    pub requested_persistence: SessionPersistence,
+    pub requested_persistence: ESessionPersistence,
 }
 
 #[derive(Debug, Clone)]
 pub struct MobileConfirmationRequest {
-    pub version: u32,
-    pub client_id: String,
-    pub steam_id: String,
-    pub signature: Buffer,
+    pub version: i32,
+    pub client_id: u64,
+    pub steamid: u64,
+    pub signature: Vec<u8>,
     pub confirm: bool,
-    pub persistence: SessionPersistence,
+    pub persistence: ESessionPersistence,
 }

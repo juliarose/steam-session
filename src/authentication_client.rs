@@ -1,17 +1,19 @@
-use crate::enums::{AuthTokenPlatformType, EOSType};
+use crate::enums::EOSType;
+use crate::helpers::{decode_jwt, get_machine_id};
 use crate::interfaces::{
     AuthenticationClientConstructorOptions,
     SubmitSteamGuardCodeRequest,
-    StartAuthSessionRequest,
     MobileConfirmationRequest,
-    GetAuthSessionInfoRequest,
     PlatformData,
-    DeviceDetails,
+    DeviceDetails, StartAuthSessionWithCredentialsRequest,
 };
-use crate::api_method::{ApiRequest, ApiResponse};
+use steam_session_proto::steammessages_auth_steamclient::{EAuthTokenPlatformType, CAuthentication_DeviceDetails, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request, CAuthentication_GetAuthSessionInfo_Request, CAuthentication_GetPasswordRSAPublicKey_Request};
+use crate::api_method::ApiRequest;
 use reqwest::Client;
 use reqwest::header::{HeaderMap, USER_AGENT, InvalidHeaderValue, HeaderValue, ORIGIN, REFERER, COOKIE};
 use serde::Serialize;
+use steam_session_proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
+use steam_session_proto::steammessages_auth_steamclient::{CAuthentication_AccessToken_GenerateForApp_Request, ETokenRenewalType};
 use tokio::task::JoinHandle;
 use crate::transports::WebSocketCMTransport;
 use crate::transports::websocket::Error as WebSocketCmError;
@@ -19,13 +21,15 @@ use crate::transports::websocket::Error as WebSocketCmError;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Unsupported platform type: {:?}", .0)]
-    UnsupportedPlatformType(AuthTokenPlatformType),
+    UnsupportedPlatformType(EAuthTokenPlatformType),
     #[error("{}", .0)]
     InvalidHeaderValue(#[from] InvalidHeaderValue),
     #[error("serde_qs error: {}", .0)]
     SerdeQS(#[from] serde_qs::Error),
     #[error("websocket error: {}", .0)]
     Websocket(#[from] WebSocketCmError),
+    #[error("Decode error: {}", .0)]
+    Decode(#[from] crate::helpers::DecodeError),
 }
 
 #[derive(Debug, Clone)]
@@ -40,7 +44,7 @@ pub struct RequestDefinition {
 #[derive(Debug)]
 pub struct AuthenticationClient {
     transport: WebSocketCMTransport,
-    platform_type: AuthTokenPlatformType,
+    platform_type: EAuthTokenPlatformType,
     client: Client,
     transport_close_timeout: Option<JoinHandle<()>>,
     user_agent: &'static str,
@@ -60,9 +64,15 @@ impl AuthenticationClient {
     }
     
     async fn get_rsa_key(
-        &self,
+        &mut self,
         account_name: String,
     ) -> Result<(), Error> {
+        let mut msg = CAuthentication_GetPasswordRSAPublicKey_Request::new();
+
+        msg.set_account_name(account_name);
+
+        let response = self.send_request(msg, None).await?;
+
         todo!()
     }
     
@@ -115,7 +125,7 @@ impl AuthenticationClient {
         }
         
         match self.platform_type {
-            AuthTokenPlatformType::SteamClient => {
+            EAuthTokenPlatformType::k_EAuthTokenPlatformType_SteamClient => {
                 let referer_query = RefererQuery {
                     in_client: "true",
                     website_id: "Client",
@@ -149,7 +159,7 @@ impl AuthenticationClient {
                     },
                 })
             },
-            AuthTokenPlatformType::WebBrowser => {
+            EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser => {
                 let mut headers = HeaderMap::new();
                 
                 headers.append(USER_AGENT, HeaderValue::from_str(self.user_agent)?);
@@ -168,7 +178,7 @@ impl AuthenticationClient {
                     },
                 })
             },
-            AuthTokenPlatformType::MobileApp => {
+            EAuthTokenPlatformType::k_EAuthTokenPlatformType_MobileApp => {
                 let mut headers = HeaderMap::new();
                 
                 headers.append(USER_AGENT, HeaderValue::from_str("okhttp/3.12.12")?);
@@ -194,7 +204,7 @@ impl AuthenticationClient {
     }
     
     async fn encrypt_password(
-        &self,
+        &mut self,
         account_name: String,
         password: String,
     ) -> Result<EncryptedPassword, Error> {
@@ -214,35 +224,36 @@ impl AuthenticationClient {
     }
 
     async fn get_auth_session_info(
-        &self,
+        &mut self,
         access_token: String,
-        details: GetAuthSessionInfoRequest,
+        client_id: u64,
     ) -> Result<(), Error> {
-        let request = RequestDefinition {
-            api_interface: "Authentication".into(),
-            api_method: "GetAuthSessionInfo".into(),
-            api_version: 1,
-            data: Vec::new(),
-            access_token: Some(access_token),
-        };
+        let mut msg = CAuthentication_GetAuthSessionInfo_Request::new();
+        
+        msg.set_client_id(client_id);
+
+        let response = self.send_request(msg, Some(access_token)).await?;
 
         // todo
         Ok(())
     }
 
     async fn submit_mobile_confirmation(
-        &self,
+        &mut self,
         access_token: String,
         details: MobileConfirmationRequest,
     ) -> Result<(), Error> {
-        let request = RequestDefinition {
-            api_interface: "Authentication".into(),
-            api_method: "UpdateAuthSessionWithMobileConfirmation".into(),
-            api_version: 1,
-            data: Vec::new(),
-            access_token: Some(access_token),
-        };
+        let mut msg = CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request::new();
 
+        msg.set_version(details.version);
+        msg.set_client_id(details.client_id);
+        msg.set_steamid(details.steamid);
+        msg.set_signature(details.signature);
+        msg.set_confirm(details.confirm);
+        msg.set_persistence(details.persistence);
+
+        let response = self.send_request(msg, Some(access_token)).await?;
+        
         // todo
         Ok(())
     }
@@ -252,57 +263,58 @@ impl AuthenticationClient {
         refresh_token: String,
         renew_refresh: bool,
     ) -> Result<(), Error> {
-        let request = RequestDefinition {
-            api_interface: "Authentication".into(),
-            api_method: "GenerateAccessTokenForApp".into(),
-            api_version: 1,
-            data: Vec::new(),
-            access_token: None,
+        let decoded = decode_jwt(&refresh_token)?;
+        let mut msg = CAuthentication_AccessToken_GenerateForApp_Request::new();
+        let renewal_type = if renew_refresh {
+            ETokenRenewalType::k_ETokenRenewalType_Allow
+        } else {
+            ETokenRenewalType::k_ETokenRenewalType_None
         };
+
+        msg.set_refresh_token(refresh_token);
+        msg.set_steamid(u64::from(decoded.steamid));
+        msg.set_renewal_type(renewal_type);
+
+        let response = self.transport.send_request(msg).await?;
 
         // todo
         Ok(())
     }
 
     async fn start_session_with_credentials(
-        &self,
-        details: StartAuthSessionRequest,
+        &mut self,
+        details: StartAuthSessionWithCredentialsRequest,
     ) -> Result<(), Error> {
-		// let {websiteId, deviceDetails} = this._getPlatformData();
+        let mut msg: CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData = CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData::new();
+        let platform_data = self.get_platform_data()?;
+        let mut device_details: CAuthentication_DeviceDetails = platform_data.device_details.into();
 
-		// let data:CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData = {
-		// 	account_name: details.accountName,
-		// 	encrypted_password: details.encryptedPassword,
-		// 	encryption_timestamp: details.keyTimestamp,
-		// 	remember_login: details.persistence == ESessionPersistence.Persistent,
-		// 	persistence: details.persistence,
-		// 	website_id: websiteId,
-		// 	device_details: deviceDetails
-		// };
+        msg.set_account_name(details.account_name);
+        msg.set_encrypted_password(details.encrypted_password);
+        msg.set_encryption_timestamp(details.encryption_timestamp);
+        msg.set_remember_login(details.remember_login);
+        msg.set_persistence(details.persistence);
+        msg.set_website_id(platform_data.website_id.into());
 
-		// if (details.platformType == EAuthTokenPlatformType.SteamClient) {
-		// 	// For SteamClient logins, we also need a machine id
-		// 	if (this._machineId && Buffer.isBuffer(this._machineId)) {
-		// 		data.device_details.machine_id = this._machineId;
-		// 	} else if (this._machineId === true) {
-		// 		data.device_details.machine_id = createMachineId(details.accountName);
-		// 	}
-		// }
+        if details.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_SteamClient {
+            if let Some(machine_id) = &self.machine_id {
+                device_details.set_machine_id(machine_id.clone());
+            } else {
+                device_details.set_machine_id(get_machine_id(msg.get_account_name()));
+            }
+        }
 
-		// if (details.steamGuardMachineToken) {
-		// 	if (Buffer.isBuffer(details.steamGuardMachineToken)) {
-		// 		data.guard_data = details.steamGuardMachineToken;
-		// 	} else if (typeof details.steamGuardMachineToken == 'string' && isJwtValidForAudience(details.steamGuardMachineToken, 'machine')) {
-		// 		data.guard_data = Buffer.from(details.steamGuardMachineToken, 'utf8');
-		// 	}
-		// }
+        msg.set_device_details(device_details);
 
-		// let result:CAuthentication_BeginAuthSessionViaCredentials_Response = await this.sendRequest({
-		// 	apiInterface: 'Authentication',
-		// 	apiMethod: 'BeginAuthSessionViaCredentials',
-		// 	apiVersion: 1,
-		// 	data
-		// });
+        if let Some(steam_guard_machine_token) = details.steam_guard_machine_token {
+            msg.set_guard_data(steam_guard_machine_token);
+
+            // if (typeof details.steamGuardMachineToken == 'string' && isJwtValidForAudience(details.steamGuardMachineToken, 'machine')) {
+            //     data.guard_data = Buffer.from(details.steamGuardMachineToken, 'utf8');
+            // }
+        }
+
+        let response = self.send_request(msg, None).await?;
 
 		// return {
 		// 	clientId: result.client_id,
@@ -316,20 +328,18 @@ impl AuthenticationClient {
         Ok(())
     }
 
-    async fn submit_steam_guard_code(&self, details: SubmitSteamGuardCodeRequest) -> Result<(), Error> {
-        // let data:CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request = {
-		// 	client_id: details.clientId,
-		// 	steamid: details.steamId,
-		// 	code: details.authCode,
-		// 	code_type: details.authCodeType
-		// };
+    async fn submit_steam_guard_code(
+        &mut self,
+        details: SubmitSteamGuardCodeRequest,
+    ) -> Result<(), Error> {
+        let mut msg = CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request::new();
+        
+        msg.set_client_id(details.client_id);
+        msg.set_steamid(details.steamid);
+        msg.set_code(details.code);
+        msg.set_code_type(details.code_type);
 
-		// await this.sendRequest({
-		// 	apiInterface: 'Authentication',
-		// 	apiMethod: 'UpdateAuthSessionWithSteamGuardCode',
-		// 	apiVersion: 1,
-		// 	data
-		// });
+        let response = self.send_request(msg, None).await?;
 
         Ok(())
     }

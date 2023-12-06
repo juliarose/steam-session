@@ -1,5 +1,5 @@
 use protobuf::{Message, ProtobufResult};
-use steam_session_proto::steammessages_clientserver_login::CMsgClientHello;
+use steam_session_proto::{steammessages_clientserver_login::CMsgClientHello, custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData, steammessages_auth_steamclient::{CAuthentication_BeginAuthSessionViaCredentials_Response, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request, CAuthentication_GetAuthSessionInfo_Request, CAuthentication_GetAuthSessionInfo_Response, CAuthentication_GetPasswordRSAPublicKey_Request, CAuthentication_GetPasswordRSAPublicKey_Response}};
 use std::fmt::Debug;
 use std::io::Read;
 use crate::proto::steammessages_auth_steamclient::{
@@ -53,4 +53,10 @@ macro_rules! api_method {
 }
 
 api_method!(("Client", "Hello", 1) => CMsgClientHello);
-api_method!(("Authentication", "GenerateForAppAccessToken", 1) => CAuthentication_AccessToken_GenerateForApp_Request, CAuthentication_AccessToken_GenerateForApp_Response);
+api_method!(("Authentication", "GenerateAccessTokenForApp", 1) => CAuthentication_AccessToken_GenerateForApp_Request, CAuthentication_AccessToken_GenerateForApp_Response);
+api_method!(("Authentication", "BeginAuthSessionViaCredentials", 1) => CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData, CAuthentication_BeginAuthSessionViaCredentials_Response);
+api_method!(("Authentication", "UpdateAuthSessionWithSteamGuardCode", 1) => CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response);
+api_method!(("Authentication", "UpdateAuthSessionWithMobileConfirmation", 1) => CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response);
+api_method!(("Authentication", "GetAuthSessionInfo", 1) => CAuthentication_GetAuthSessionInfo_Request, CAuthentication_GetAuthSessionInfo_Response);
+api_method!(("Authentication", "GetPasswordRSAPublicKey", 1) => CAuthentication_GetPasswordRSAPublicKey_Request, CAuthentication_GetPasswordRSAPublicKey_Response);
+

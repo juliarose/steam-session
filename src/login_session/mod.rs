@@ -1,7 +1,4 @@
-use crate::enums::{
-    AuthTokenPlatformType,
-    AuthSessionGuardType,
-};
+use crate::enums::AuthSessionGuardType;
 use crate::interfaces::{
     StartSessionResponseValidAction,
     LoginSessionOptions,
@@ -10,9 +7,10 @@ use crate::interfaces::{
 };
 use crate::types::DateTime;
 use crate::authentication_client::AuthenticationClient;
-use crate::helpers::{USER_AGENT, decode_jwt, self};
+use crate::helpers::{USER_AGENT, decode_jwt};
 use chrono::Duration;
 use reqwest::Client;
+use steam_session_proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
 use steamid_ng::SteamID;
 use tokio::task::JoinHandle;
 
@@ -24,7 +22,7 @@ pub struct LoginSession {
     account_name: Option<String>,
     access_token: Option<String>,
     refresh_token: Option<String>,
-    platform_type: AuthTokenPlatformType,
+    platform_type: EAuthTokenPlatformType,
     client: Client,
     handler: AuthenticationClient,
     steam_guard_code: Option<String>,
@@ -40,7 +38,7 @@ pub struct LoginSession {
 
 impl LoginSession {
     pub async fn connect(
-        platform_type: AuthTokenPlatformType,
+        platform_type: EAuthTokenPlatformType,
         options: LoginSessionOptions,
     ) -> Result<Self, LoginSessionError> {
         // probably reqwest client
