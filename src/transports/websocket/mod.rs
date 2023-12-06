@@ -91,7 +91,7 @@ impl WebSocketCMTransport {
     pub async fn send_request<'a, Msg>(
         &mut self,
         msg: Msg,
-    ) -> Result<Option<()>, Error> 
+    ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, Error>>>, Error> 
     where
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send,
@@ -111,7 +111,7 @@ impl WebSocketCMTransport {
                 tx.send(wait_for_response::<Msg>(filter_rx).await).ok();
             });
             
-            Ok(Some(()))
+            Ok(Some(rx))
         } else {
             Ok(None)
         }

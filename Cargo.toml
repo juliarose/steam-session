@@ -34,6 +34,7 @@ keyvalues-serde = "0.2.0"
 num_enum = "0.7.1"
 dashmap = "5.5.3"
 flate2 = "1.0"
+rsa = "0.9.6"
 
 # maybe not needed
 async-fs = "1.5.0"

@@ -7,7 +7,8 @@ use crate::interfaces::{
     PlatformData,
     DeviceDetails, StartAuthSessionWithCredentialsRequest,
 };
-use steam_session_proto::steammessages_auth_steamclient::{EAuthTokenPlatformType, CAuthentication_DeviceDetails, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request, CAuthentication_GetAuthSessionInfo_Request, CAuthentication_GetPasswordRSAPublicKey_Request};
+use steam_session_proto::steammessages_auth_steamclient::{EAuthTokenPlatformType, CAuthentication_DeviceDetails, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request, CAuthentication_GetAuthSessionInfo_Request, CAuthentication_GetPasswordRSAPublicKey_Request, CAuthentication_GetPasswordRSAPublicKey_Response, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response, CAuthentication_AccessToken_GenerateForApp_Response, CAuthentication_BeginAuthSessionViaCredentials_Response, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response, CAuthentication_GetAuthSessionInfo_Response};
+use tokio::sync::oneshot;
 use crate::api_method::ApiRequest;
 use reqwest::Client;
 use reqwest::header::{HeaderMap, USER_AGENT, InvalidHeaderValue, HeaderValue, ORIGIN, REFERER, COOKIE};
@@ -17,6 +18,7 @@ use steam_session_proto::steammessages_auth_steamclient::{CAuthentication_Access
 use tokio::task::JoinHandle;
 use crate::transports::WebSocketCMTransport;
 use crate::transports::websocket::Error as WebSocketCmError;
+use rsa::{RsaPublicKey, BigUint};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -30,15 +32,12 @@ pub enum Error {
     Websocket(#[from] WebSocketCmError),
     #[error("Decode error: {}", .0)]
     Decode(#[from] crate::helpers::DecodeError),
-}
-
-#[derive(Debug, Clone)]
-pub struct RequestDefinition {
-    api_interface: String,
-    api_method: String,
-    api_version: u32,
-    data: Vec<u8>,
-    access_token: Option<String>,
+    #[error("Request does not expect response")]
+    NoJob,
+    #[error("Receiver error: {}", .0)]
+    RecvError(#[from] tokio::sync::oneshot::error::RecvError),
+    #[error("Failed to parse int: {}", .0)]
+    BadUint(String),
 }
 
 #[derive(Debug)]
@@ -63,34 +62,26 @@ impl AuthenticationClient {
         }
     }
     
-    async fn get_rsa_key(
-        &mut self,
-        account_name: String,
-    ) -> Result<(), Error> {
-        let mut msg = CAuthentication_GetPasswordRSAPublicKey_Request::new();
-
-        msg.set_account_name(account_name);
-
-        let response = self.send_request(msg, None).await?;
-
-        todo!()
-    }
-    
     async fn send_request<Msg>(
         &mut self,
         msg: Msg,
         access_token: Option<String>,
-    ) -> Result<(), Error>
+    ) -> Result<Msg::Response, Error>
     where
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send,
     {
         let _headers = self.get_platform_data()?.headers;
-        let result = self.transport.send_request(
+
+        if let Some(rx) = self.transport.send_request(
             msg,
-        ).await?;
-        
-        Ok(())
+        ).await? {
+            let response = rx.await??;
+
+            Ok(response)
+        } else {
+            Err(Error::NoJob)
+        }
     }
     
     fn close(&mut self) {
@@ -209,7 +200,12 @@ impl AuthenticationClient {
         password: String,
     ) -> Result<EncryptedPassword, Error> {
         let rsa_info = self.get_rsa_key(account_name).await?;
-		// todo
+		let n = BigUint::parse_bytes(rsa_info.get_publickey_mod().as_bytes(), 16)
+            .ok_or_else(|| Error::BadUint(rsa_info.get_publickey_mod().into()))?;
+		let e = BigUint::parse_bytes(rsa_info.get_publickey_exp().as_bytes(), 16)
+            .ok_or_else(|| Error::BadUint(rsa_info.get_publickey_exp().into()))?;
+        let key = RsaPublicKey::new(n, e);
+        // todo
         // let key = new RSAKey();
 		// key.setPublic(rsaInfo.publickey_mod, rsaInfo.publickey_exp);
 		
@@ -222,27 +218,41 @@ impl AuthenticationClient {
             key_timestamp: String::new(),
         })
     }
+    
+    async fn get_rsa_key(
+        &mut self,
+        account_name: String,
+    ) -> Result<CAuthentication_GetPasswordRSAPublicKey_Response, Error> {
+        let mut msg = CAuthentication_GetPasswordRSAPublicKey_Request::new();
+
+        msg.set_account_name(account_name);
+
+        self.send_request(
+            msg,
+            None,
+        ).await
+    }   
 
     async fn get_auth_session_info(
         &mut self,
-        access_token: String,
         client_id: u64,
-    ) -> Result<(), Error> {
+        access_token: String,
+    ) -> Result<CAuthentication_GetAuthSessionInfo_Response, Error> {
         let mut msg = CAuthentication_GetAuthSessionInfo_Request::new();
         
         msg.set_client_id(client_id);
 
-        let response = self.send_request(msg, Some(access_token)).await?;
-
-        // todo
-        Ok(())
+        self.send_request(
+            msg,
+            Some(access_token),
+        ).await
     }
 
     async fn submit_mobile_confirmation(
         &mut self,
         access_token: String,
         details: MobileConfirmationRequest,
-    ) -> Result<(), Error> {
+    ) -> Result<CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response, Error> {
         let mut msg = CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request::new();
 
         msg.set_version(details.version);
@@ -252,17 +262,17 @@ impl AuthenticationClient {
         msg.set_confirm(details.confirm);
         msg.set_persistence(details.persistence);
 
-        let response = self.send_request(msg, Some(access_token)).await?;
-        
-        // todo
-        Ok(())
+        self.send_request(
+            msg,
+            Some(access_token),
+        ).await
     }
 
     async fn generate_access_token_for_app(
         &mut self,
         refresh_token: String,
         renew_refresh: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<CAuthentication_AccessToken_GenerateForApp_Response, Error> {
         let decoded = decode_jwt(&refresh_token)?;
         let mut msg = CAuthentication_AccessToken_GenerateForApp_Request::new();
         let renewal_type = if renew_refresh {
@@ -275,16 +285,16 @@ impl AuthenticationClient {
         msg.set_steamid(u64::from(decoded.steamid));
         msg.set_renewal_type(renewal_type);
 
-        let response = self.transport.send_request(msg).await?;
-
-        // todo
-        Ok(())
+        self.send_request(
+            msg,
+            None,
+        ).await
     }
 
     async fn start_session_with_credentials(
         &mut self,
         details: StartAuthSessionWithCredentialsRequest,
-    ) -> Result<(), Error> {
+    ) -> Result<CAuthentication_BeginAuthSessionViaCredentials_Response, Error> {
         let mut msg: CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData = CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData::new();
         let platform_data = self.get_platform_data()?;
         let mut device_details: CAuthentication_DeviceDetails = platform_data.device_details.into();
@@ -314,8 +324,6 @@ impl AuthenticationClient {
             // }
         }
 
-        let response = self.send_request(msg, None).await?;
-
 		// return {
 		// 	clientId: result.client_id,
 		// 	requestId: result.request_id,
@@ -325,13 +333,16 @@ impl AuthenticationClient {
 		// 	weakToken: result.weak_token
 		// };
 
-        Ok(())
+        self.send_request(
+            msg,
+            None,
+        ).await
     }
 
     async fn submit_steam_guard_code(
         &mut self,
         details: SubmitSteamGuardCodeRequest,
-    ) -> Result<(), Error> {
+    ) -> Result<CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response, Error> {
         let mut msg = CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request::new();
         
         msg.set_client_id(details.client_id);
@@ -339,12 +350,12 @@ impl AuthenticationClient {
         msg.set_code(details.code);
         msg.set_code_type(details.code_type);
 
-        let response = self.send_request(msg, None).await?;
-
-        Ok(())
+        self.send_request(
+            msg,
+            None,
+        ).await
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct EncryptedPassword {
