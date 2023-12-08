@@ -48,7 +48,7 @@ where
 #[derive(Debug)]
 pub struct WebSocketCMTransport {
     connection_timeout: Duration,
-    websocket_write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
+    websocket_write: tokio::sync::Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>>,
     filter: Arc<MessageFilter>,
     client_sessionid: Arc<AtomicI32>,
 }
@@ -82,14 +82,14 @@ impl WebSocketCMTransport {
         
         Self {
             connection_timeout: Duration::seconds(10),
-            websocket_write,
+            websocket_write: tokio::sync::Mutex::new(websocket_write),
             filter: Arc::new(filter),
             client_sessionid,
         }
     }
     
     pub async fn send_request<'a, Msg>(
-        &mut self,
+        &self,
         msg: Msg,
     ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, Error>>>, Error> 
     where
@@ -118,7 +118,7 @@ impl WebSocketCMTransport {
     }
     
     async fn send_message<'a, Msg>(
-        &mut self,
+        &self,
         emsg: EMsg,
         msg: Msg,
         service_method_name: Option<&'static str>,
@@ -178,7 +178,7 @@ impl WebSocketCMTransport {
         
         let message = tungstenite::Message::binary(message);
         
-        self.websocket_write.send(message).await?;
+        self.websocket_write.lock().await.send(message).await?;
         
         Ok(jobid)
     }

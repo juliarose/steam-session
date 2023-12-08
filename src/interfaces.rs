@@ -78,7 +78,7 @@ pub struct AllowedConfirmation {
 
 #[derive(Debug, Clone)]
 pub struct StartAuthSessionResponse {
-	pub client_id: String,
+	pub client_id: u64,
 	pub request_id: Buffer,
 	pub poll_interval: u64,
 	pub allowed_confirmations: Vec<AllowedConfirmation>,
@@ -180,8 +180,8 @@ pub struct StartAuthSessionWithCredentialsRequest {
 pub struct StartAuthSessionWithCredentialsResponse {
     pub steam_id: String,
     pub weak_token: String,
-    pub client_id: String,
-    pub request_id: Buffer,
+    pub client_id: u64,
+    pub request_id: Vec<u8>,
     pub poll_interval: u32,
     pub allowed_confirmations: Vec<AllowedConfirmation>,
 }
@@ -190,7 +190,7 @@ pub struct StartAuthSessionWithCredentialsResponse {
 pub struct StartAuthSessionWithQrResponse {
     pub challenge_url: String,
     pub version: u32,
-    pub client_id: String,
+    pub client_id: u64,
     pub request_id: Buffer,
     pub poll_interval: u32,
     pub allowed_confirmations: Vec<AllowedConfirmation>,
@@ -198,7 +198,7 @@ pub struct StartAuthSessionWithQrResponse {
 
 #[derive(Debug, Clone)]
 pub struct CheckMachineAuthRequest {
-    pub client_id: String,
+    pub client_id: u64,
     pub steam_id: String,
     pub machine_auth_token: Option<String>,
 }
@@ -211,8 +211,8 @@ pub struct CheckMachineAuthResponse {
 
 #[derive(Debug, Clone)]
 pub struct PollLoginStatusRequest {
-    pub client_id: String,
-    pub request_id: Buffer,
+    pub client_id: u64,
+    pub request_id: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]

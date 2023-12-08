@@ -1,5 +1,5 @@
 use protobuf::{Message, ProtobufResult};
-use steam_session_proto::{steammessages_clientserver_login::CMsgClientHello, custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData, steammessages_auth_steamclient::{CAuthentication_BeginAuthSessionViaCredentials_Response, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request, CAuthentication_GetAuthSessionInfo_Request, CAuthentication_GetAuthSessionInfo_Response, CAuthentication_GetPasswordRSAPublicKey_Request, CAuthentication_GetPasswordRSAPublicKey_Response}};
+use steam_session_proto::{steammessages_clientserver_login::CMsgClientHello, custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData, steammessages_auth_steamclient::{CAuthentication_BeginAuthSessionViaCredentials_Response, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request, CAuthentication_GetAuthSessionInfo_Request, CAuthentication_GetAuthSessionInfo_Response, CAuthentication_GetPasswordRSAPublicKey_Request, CAuthentication_GetPasswordRSAPublicKey_Response, CAuthentication_PollAuthSessionStatus_Request, CAuthentication_PollAuthSessionStatus_Response}};
 use std::fmt::Debug;
 use std::io::Read;
 use crate::proto::steammessages_auth_steamclient::{
@@ -59,4 +59,5 @@ api_method!(("Authentication", "UpdateAuthSessionWithSteamGuardCode", 1) => CAut
 api_method!(("Authentication", "UpdateAuthSessionWithMobileConfirmation", 1) => CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response);
 api_method!(("Authentication", "GetAuthSessionInfo", 1) => CAuthentication_GetAuthSessionInfo_Request, CAuthentication_GetAuthSessionInfo_Response);
 api_method!(("Authentication", "GetPasswordRSAPublicKey", 1) => CAuthentication_GetPasswordRSAPublicKey_Request, CAuthentication_GetPasswordRSAPublicKey_Response);
+api_method!(("Authentication", "PollAuthSessionStatus", 1) => CAuthentication_PollAuthSessionStatus_Request, CAuthentication_PollAuthSessionStatus_Response);
 

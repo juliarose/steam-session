@@ -7,7 +7,7 @@ use crate::interfaces::{
     PlatformData,
     DeviceDetails,
     StartAuthSessionWithCredentialsRequest,
-    EncryptedPassword,
+    EncryptedPassword, PollLoginStatusRequest,
 };
 use steam_session_proto::steammessages_auth_steamclient::{
     EAuthTokenPlatformType,
@@ -24,6 +24,8 @@ use steam_session_proto::steammessages_auth_steamclient::{
     CAuthentication_GetAuthSessionInfo_Request,
     CAuthentication_GetAuthSessionInfo_Response,
     CAuthentication_BeginAuthSessionViaCredentials_Response,
+    CAuthentication_PollAuthSessionStatus_Request,
+    CAuthentication_PollAuthSessionStatus_Response,
 };
 use steam_session_proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
 use crate::api_method::ApiRequest;
@@ -80,7 +82,7 @@ impl AuthenticationClient {
     }
     
     async fn send_request<Msg>(
-        &mut self,
+        &self,
         msg: Msg,
         access_token: Option<String>,
     ) -> Result<Msg::Response, Error>
@@ -89,12 +91,12 @@ impl AuthenticationClient {
         <Msg as ApiRequest>::Response: Send,
     {
         let _headers = self.get_platform_data()?.headers;
-
+        
         if let Some(rx) = self.transport.send_request(
             msg,
         ).await? {
             let response = rx.await??;
-
+            
             Ok(response)
         } else {
             Err(Error::NoJob)
@@ -212,14 +214,14 @@ impl AuthenticationClient {
     }
     
     pub async fn encrypt_password(
-        &mut self,
+        &self,
         account_name: String,
         password: String,
     ) -> Result<EncryptedPassword, Error> {
         let rsa_info = self.get_rsa_key(account_name).await?;
-		let n = BigUint::parse_bytes(rsa_info.get_publickey_mod().as_bytes(), 16)
+        let n = BigUint::parse_bytes(rsa_info.get_publickey_mod().as_bytes(), 16)
             .ok_or_else(|| Error::BadUint(rsa_info.get_publickey_mod().into()))?;
-		let e = BigUint::parse_bytes(rsa_info.get_publickey_exp().as_bytes(), 16)
+        let e = BigUint::parse_bytes(rsa_info.get_publickey_exp().as_bytes(), 16)
             .ok_or_else(|| Error::BadUint(rsa_info.get_publickey_exp().into()))?;
         let key = RsaPublicKey::new(n, e)?;
         let encrypted_password = key.encrypt(
@@ -236,22 +238,22 @@ impl AuthenticationClient {
         })
     }
     
-    async fn get_rsa_key(
-        &mut self,
+    pub async fn get_rsa_key(
+        &self,
         account_name: String,
     ) -> Result<CAuthentication_GetPasswordRSAPublicKey_Response, Error> {
         let mut msg = CAuthentication_GetPasswordRSAPublicKey_Request::new();
-
+        
         msg.set_account_name(account_name);
-
+        
         self.send_request(
             msg,
             None,
         ).await
     }   
-
+    
     async fn get_auth_session_info(
-        &mut self,
+        &self,
         client_id: u64,
         access_token: String,
     ) -> Result<CAuthentication_GetAuthSessionInfo_Response, Error> {
@@ -264,29 +266,29 @@ impl AuthenticationClient {
             Some(access_token),
         ).await
     }
-
-    async fn submit_mobile_confirmation(
-        &mut self,
+    
+    pub async fn submit_mobile_confirmation(
+        &self,
         access_token: String,
         details: MobileConfirmationRequest,
     ) -> Result<CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response, Error> {
         let mut msg = CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request::new();
-
+        
         msg.set_version(details.version);
         msg.set_client_id(details.client_id);
         msg.set_steamid(details.steamid);
         msg.set_signature(details.signature);
         msg.set_confirm(details.confirm);
         msg.set_persistence(details.persistence);
-
+        
         self.send_request(
             msg,
             Some(access_token),
         ).await
     }
-
-    async fn generate_access_token_for_app(
-        &mut self,
+    
+    pub async fn generate_access_token_for_app(
+        &self,
         refresh_token: String,
         renew_refresh: bool,
     ) -> Result<CAuthentication_AccessToken_GenerateForApp_Response, Error> {
@@ -297,11 +299,11 @@ impl AuthenticationClient {
         } else {
             ETokenRenewalType::k_ETokenRenewalType_None
         };
-
+        
         msg.set_refresh_token(refresh_token);
         msg.set_steamid(u64::from(decoded.steamid));
         msg.set_renewal_type(renewal_type);
-
+        
         self.send_request(
             msg,
             None,
@@ -309,7 +311,7 @@ impl AuthenticationClient {
     }
 
     pub async fn start_session_with_credentials(
-        &mut self,
+        &self,
         details: StartAuthSessionWithCredentialsRequest,
     ) -> Result<CAuthentication_BeginAuthSessionViaCredentials_Response, Error> {
         let mut msg: CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData = CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData::new();
@@ -349,15 +351,30 @@ impl AuthenticationClient {
 		// 	steamId: result.steamid,
 		// 	weakToken: result.weak_token
 		// };
-
+        
+        self.send_request(
+            msg,
+            None,
+        ).await
+    }
+    
+    pub async fn poll_login_status(
+        &self,
+        details: PollLoginStatusRequest,
+    ) -> Result<CAuthentication_PollAuthSessionStatus_Response, Error> {
+        let mut msg = CAuthentication_PollAuthSessionStatus_Request::new();
+        
+        msg.set_client_id(details.client_id);
+        msg.set_request_id(details.request_id);
+        
         self.send_request(
             msg,
             None,
         ).await
     }
 
-    async fn submit_steam_guard_code(
-        &mut self,
+    pub async fn submit_steam_guard_code(
+        &self,
         details: SubmitSteamGuardCodeRequest,
     ) -> Result<CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response, Error> {
         let mut msg = CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request::new();

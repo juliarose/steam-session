@@ -220,9 +220,9 @@ impl LoginSession {
         Ok(())
     }
     
-    async fn process_start_session_response(&mut self) {
-        self.polling_canceled = false;
-
+    async fn process_start_session_response(
+        &self,
+    ) {
         let mut valid_actions: Vec<StartSessionResponseValidAction> = Vec::new();
 
         if let Some(start_session_response) = &self.start_session_response {
@@ -295,6 +295,33 @@ impl LoginSession {
         } else {
             return Err(LoginSessionError::LoginSessionHasNotStarted);
         }
+    }
+    
+    fn total_polling_time(&self) -> chrono::Duration {
+        chrono::Utc::now() - self.polling_started_time.unwrap_or_else(|| chrono::Utc::now())
+    }
+    
+    async fn do_poll(&mut self) {
+        if self.polling_canceled {
+            return;
+        }
+        
+        if self.polling_started_time.is_none() {
+            self.polling_started_time = Some(chrono::Utc::now());
+        }
+        
+        let total_polling_time = self.total_polling_time();
+        
+        if total_polling_time >= self.login_timeout {
+            // timeout
+        }
+    }
+    
+    /// Cancels polling for an ongoing login attempt. Once canceled, you should no longer interact 
+    /// with this [`LoginSession`], and you should create a new one if you want to start a new 
+    /// attempt.
+    fn cancel_login_attempt(&mut self) {
+        self.polling_canceled = true;
     }
     
     fn verify_started(&self, must_have_steamid: bool) -> Result<(), LoginSessionError> {
