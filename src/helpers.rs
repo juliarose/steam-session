@@ -21,7 +21,7 @@ pub fn decode_qr_url(url: &str) -> Option<DecodedQr> {
         //     version,
         // };
     // }
-
+    
     None
 }
 
@@ -73,6 +73,22 @@ pub fn decode_jwt(jwt: &str) -> Result<JWT, DecodeError> {
     Ok(jwt)
 }
 
+/// Decodes input from base64.
+pub fn decode_base64<I>(input: I) -> Result<Vec<u8>, base64::DecodeError>
+where
+    I: AsRef<[u8]>
+{
+    general_purpose::STANDARD_NO_PAD.decode(input)
+}
+
+/// Decodes input to base64.
+pub fn encode_base64<I>(input: I) -> String
+where
+    I: AsRef<[u8]>
+{
+    general_purpose::STANDARD_NO_PAD.encode(input)
+}
+
 pub fn is_jwt_valid_for_audience(
     jwt: &str,
     audience: &str,
@@ -121,16 +137,16 @@ fn create_sha1(input: &[u8]) -> Vec<u8> {
 
 fn bytes_to_hex_string(input: &[u8]) -> String {
     use std::fmt::Write;
-
+    
     let mut s = String::with_capacity(2 * input.len());
-
+    
     for byte in input {
         write!(s, "{:02X}", byte).unwrap();
     }
-
+    
     s
 }
-    
+
 fn create_sha1_str(input: &str) -> String {
     let sha_bytes = create_sha1(input.as_bytes());
     

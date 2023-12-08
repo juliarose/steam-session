@@ -29,6 +29,12 @@ pub enum ConnectionType {
 }
 
 #[derive(Debug, Clone)]
+pub struct EncryptedPassword {
+    pub encrypted_password: String,
+    pub key_timestamp: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct DeviceDetails {
     pub device_friendly_name: &'static str,
     pub platform_type: EAuthTokenPlatformType,
@@ -80,12 +86,15 @@ pub struct StartAuthSessionResponse {
 }
 
 #[derive(Debug, Clone)]
-pub struct StartLoginSessionWithCredentialsDetails<'a> {
-    pub account_name: &'a str,
-    pub password: &'a str,
+pub struct StartLoginSessionWithCredentialsDetails {
+    pub account_name: String,
+    pub password: String,
     pub persistence: Option<ESessionPersistence>,
-    pub steam_guard_machine_token: Option<&'a str>,
-    pub steam_guard_code: Option<&'a str>,
+    pub steam_guard_machine_token: Option<Vec<u8>>,
+    pub steam_guard_code: Option<String>,
+    pub platform_type: EAuthTokenPlatformType,
+    pub machine_id: Option<Vec<u8>>,
+    pub user_agent: Option<&'static str>,
 }
 
 #[derive(Debug, Clone)]
@@ -104,7 +113,7 @@ pub struct SubmitSteamGuardCodeRequest {
 
 #[derive(Debug, Clone)]
 pub struct StartSessionResponseValidAction {
-    pub r#type: AuthSessionGuardType,
+    pub r#type: EAuthSessionGuardType,
     pub detail: Option<String>,
 }
 
@@ -164,7 +173,7 @@ pub struct StartAuthSessionWithCredentialsRequest {
     pub remember_login: bool,
     pub platform_type: EAuthTokenPlatformType,
     pub persistence: ESessionPersistence,
-    pub steam_guard_machine_token: Option<Buffer>,
+    pub steam_guard_machine_token: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]

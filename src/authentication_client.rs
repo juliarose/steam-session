@@ -1,21 +1,35 @@
 use crate::enums::EOSType;
-use crate::helpers::{decode_jwt, get_machine_id};
+use crate::helpers::{decode_jwt, get_machine_id, encode_base64};
 use crate::interfaces::{
     AuthenticationClientConstructorOptions,
     SubmitSteamGuardCodeRequest,
     MobileConfirmationRequest,
     PlatformData,
-    DeviceDetails, StartAuthSessionWithCredentialsRequest,
+    DeviceDetails,
+    StartAuthSessionWithCredentialsRequest,
+    EncryptedPassword,
 };
-use rsa::traits::PaddingScheme;
-use steam_session_proto::steammessages_auth_steamclient::{EAuthTokenPlatformType, CAuthentication_DeviceDetails, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request, CAuthentication_GetAuthSessionInfo_Request, CAuthentication_GetPasswordRSAPublicKey_Request, CAuthentication_GetPasswordRSAPublicKey_Response, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response, CAuthentication_AccessToken_GenerateForApp_Response, CAuthentication_BeginAuthSessionViaCredentials_Response, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response, CAuthentication_GetAuthSessionInfo_Response};
-use tokio::sync::oneshot;
+use steam_session_proto::steammessages_auth_steamclient::{
+    EAuthTokenPlatformType,
+    ETokenRenewalType,
+    CAuthentication_DeviceDetails,
+    CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request,
+    CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response,
+    CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request,
+    CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response,
+    CAuthentication_GetPasswordRSAPublicKey_Request,
+    CAuthentication_GetPasswordRSAPublicKey_Response,
+    CAuthentication_AccessToken_GenerateForApp_Request,
+    CAuthentication_AccessToken_GenerateForApp_Response,
+    CAuthentication_GetAuthSessionInfo_Request,
+    CAuthentication_GetAuthSessionInfo_Response,
+    CAuthentication_BeginAuthSessionViaCredentials_Response,
+};
+use steam_session_proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
 use crate::api_method::ApiRequest;
 use reqwest::Client;
 use reqwest::header::{HeaderMap, USER_AGENT, InvalidHeaderValue, HeaderValue, ORIGIN, REFERER, COOKIE};
 use serde::Serialize;
-use steam_session_proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
-use steam_session_proto::steammessages_auth_steamclient::{CAuthentication_AccessToken_GenerateForApp_Request, ETokenRenewalType};
 use tokio::task::JoinHandle;
 use crate::transports::WebSocketCMTransport;
 use crate::transports::websocket::Error as WebSocketCmError;
@@ -197,7 +211,7 @@ impl AuthenticationClient {
         // todo
     }
     
-    async fn encrypt_password(
+    pub async fn encrypt_password(
         &mut self,
         account_name: String,
         password: String,
@@ -208,23 +222,17 @@ impl AuthenticationClient {
 		let e = BigUint::parse_bytes(rsa_info.get_publickey_exp().as_bytes(), 16)
             .ok_or_else(|| Error::BadUint(rsa_info.get_publickey_exp().into()))?;
         let key = RsaPublicKey::new(n, e)?;
-        let encrytped_password: Vec<u8> = key.encrypt(
+        let encrypted_password = key.encrypt(
             &mut rand::thread_rng(),
             Pkcs1v15Encrypt::default(),
             password.as_bytes(),
         )?;
-
-        // todo
-        // let key = new RSAKey();
-		// key.setPublic(rsaInfo.publickey_mod, rsaInfo.publickey_exp);
-		
-		// return {
-		// 	encryptedPassword: hex2b64(key.encrypt(password)),
-		// 	keyTimestamp: rsaInfo.timestamp
-		// };
+        let key_timestamp = rsa_info.get_timestamp();
+        let encrypted_password = encode_base64(encrypted_password);
+        
         Ok(EncryptedPassword {
-            password: String::new(),
-            key_timestamp: String::new(),
+            encrypted_password,
+            key_timestamp,
         })
     }
     
@@ -300,7 +308,7 @@ impl AuthenticationClient {
         ).await
     }
 
-    async fn start_session_with_credentials(
+    pub async fn start_session_with_credentials(
         &mut self,
         details: StartAuthSessionWithCredentialsRequest,
     ) -> Result<CAuthentication_BeginAuthSessionViaCredentials_Response, Error> {
@@ -364,10 +372,4 @@ impl AuthenticationClient {
             None,
         ).await
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct EncryptedPassword {
-    password: String,
-    key_timestamp: String,
 }

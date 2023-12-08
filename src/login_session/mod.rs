@@ -1,20 +1,30 @@
-use crate::enums::AuthSessionGuardType;
+mod error;
+
+pub use error::LoginSessionError;
+
 use crate::interfaces::{
     StartSessionResponseValidAction,
     LoginSessionOptions,
-    StartAuthSessionResponse,
     AuthenticationClientConstructorOptions,
+    StartLoginSessionWithCredentialsDetails,
+    StartAuthSessionWithCredentialsRequest,
 };
 use crate::types::DateTime;
 use crate::authentication_client::AuthenticationClient;
 use crate::helpers::{USER_AGENT, decode_jwt};
+use crate::transports::WebSocketCMTransport;
 use chrono::Duration;
 use reqwest::Client;
-use steam_session_proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
+use steam_session_proto::enums::ESessionPersistence;
+use steam_session_proto::steammessages_auth_steamclient::{
+    EAuthTokenPlatformType,
+    EAuthSessionGuardType,
+    CAuthentication_BeginAuthSessionViaCredentials_Response,
+};
 use steamid_ng::SteamID;
 use tokio::task::JoinHandle;
 
-use crate::transports::WebSocketCMTransport;
+const LOGIN_TIMEOUT_SECONDS: i64 = 30;
 
 #[derive(Debug)]
 pub struct LoginSession {
@@ -26,14 +36,30 @@ pub struct LoginSession {
     client: Client,
     handler: AuthenticationClient,
     steam_guard_code: Option<String>,
-    steam_guard_machine_token: Option<String>,
-    start_session_response: Option<StartAuthSessionResponse>,
-    had_remote_interaction: Option<bool>,
+    steam_guard_machine_token: Option<Vec<u8>>,
+    start_session_response: Option<CAuthentication_BeginAuthSessionViaCredentials_Response>,
+    had_remote_interaction: bool,
     polling_started_time: Option<DateTime>,
-    // use tokio::task::JoinHandle
     poll_timer: Option<JoinHandle<()>>,
-    polling_canceled: Option<bool>,
+    polling_canceled: bool,
     access_token_set_at: Option<DateTime>,
+}
+
+async fn create_handler(
+    client: Client,
+    platform_type: EAuthTokenPlatformType,
+    machine_id: Option<Vec<u8>>,
+    user_agent: Option<&'static str>,
+) -> Result<AuthenticationClient, LoginSessionError> {
+    let transport = WebSocketCMTransport::connect().await?;
+    
+    Ok(AuthenticationClient::new(AuthenticationClientConstructorOptions {
+        platform_type,
+        client,
+        machine_id,
+        transport,
+        user_agent: user_agent.unwrap_or(USER_AGENT),
+    }))
 }
 
 impl LoginSession {
@@ -43,46 +69,96 @@ impl LoginSession {
     ) -> Result<Self, LoginSessionError> {
         // probably reqwest client
         // let agent:HTTPS.Agent = options.agent || new HTTPS.Agent({keepAlive: true});
-
+		
 		// if (options.httpProxy) {
 		// 	agent = StdLib.HTTP.getProxyAgent(true, options.httpProxy) as HTTPS.Agent;
 		// } else if (options.socksProxy) {
 		// 	agent = new SocksProxyAgent(options.socksProxy);
 		// }
-
+        
         let client = Client::new();
-        let transport = WebSocketCMTransport::connect().await?;
+        let handler = create_handler(
+            client.clone(),
+            platform_type,
+            options.machine_id,
+            options.user_agent
+        ).await?;
         
         Ok(Self {
-            login_timeout: Duration::seconds(30),
+            login_timeout: Duration::seconds(LOGIN_TIMEOUT_SECONDS),
             account_name: None,
-            access_token: None,
             refresh_token: None,
             platform_type,
-            client: client.clone(),
-            handler: AuthenticationClient::new(AuthenticationClientConstructorOptions {
-                platform_type,
-                client,
-                machine_id: options.machine_id,
-                transport,
-                user_agent: options.user_agent.unwrap_or_else(|| USER_AGENT),
-            }),
+            client,
+            handler,
             steam_guard_code: None,
             steam_guard_machine_token: None,
             start_session_response: None,
-            had_remote_interaction: None,
+            had_remote_interaction: false,
             polling_started_time: None,
             poll_timer: None,
-            polling_canceled: None,
+            polling_canceled: false,
+            access_token: None,
+            access_token_set_at: None,
+        })
+    }
+    
+    pub async fn start_session_with_credentials(
+        details: StartLoginSessionWithCredentialsDetails,
+    ) -> Result<Self, LoginSessionError> {        
+        let StartLoginSessionWithCredentialsDetails {
+            account_name,
+            password,
+            steam_guard_code,
+            steam_guard_machine_token,
+            platform_type,
+            machine_id,
+            user_agent,
+            persistence,
+        } = details;
+        let client = Client::new();
+        let mut handler = create_handler(
+            client.clone(),
+            platform_type,
+            machine_id,
+            user_agent
+        ).await?;
+        let encrypted_password = handler.encrypt_password(
+            account_name.clone(),
+            password.clone(),
+        ).await?;
+        let start_session_response = handler.start_session_with_credentials(StartAuthSessionWithCredentialsRequest {
+            account_name,
+            encrypted_password: encrypted_password.encrypted_password,
+            encryption_timestamp: encrypted_password.key_timestamp,
+            remember_login: true,
+            platform_type,
+            persistence: persistence.unwrap_or(ESessionPersistence::k_ESessionPersistence_Persistent),
+            steam_guard_machine_token: steam_guard_machine_token.clone(),
+        }).await?;
+        
+        Ok(Self {
+            login_timeout: Duration::seconds(LOGIN_TIMEOUT_SECONDS),
+            account_name: None,
+            refresh_token: None,
+            platform_type,
+            client,
+            handler,
+            steam_guard_code,
+            steam_guard_machine_token,
+            start_session_response: Some(start_session_response),
+            had_remote_interaction: false,
+            polling_started_time: None,
+            poll_timer: None,
+            polling_canceled: false,
+            access_token: None,
             access_token_set_at: None,
         })
     }
 
     pub fn steamid(&self) -> Option<SteamID> {
         if let Some(start_session_response) = &self.start_session_response {
-            if let Some(steamid) = start_session_response.steamid {
-                return Some(steamid);
-            }
+            return Some(SteamID::from(start_session_response.get_steamid()));
         }
 
         let token = if let Some(access_token) = &self.access_token {
@@ -125,10 +201,8 @@ impl LoginSession {
         }
         
         if let Some(start_session_response) = &self.start_session_response {
-            if let Some(steamid) = start_session_response.steamid {
-                if steamid != decoded.steamid {
-                    return Err(LoginSessionError::TokenIsForDifferentAccount);
-                }
+            if start_session_response.get_steamid() != u64::from(decoded.steamid) {
+                return Err(LoginSessionError::TokenIsForDifferentAccount);
             }
         }
         
@@ -147,33 +221,35 @@ impl LoginSession {
     }
     
     async fn process_start_session_response(&mut self) {
-        self.polling_canceled = Some(false);
+        self.polling_canceled = false;
 
         let mut valid_actions: Vec<StartSessionResponseValidAction> = Vec::new();
 
         if let Some(start_session_response) = &self.start_session_response {
-            for allowed_confirmation in &start_session_response.allowed_confirmations {
-                match allowed_confirmation.r#type {
-                    AuthSessionGuardType::None => {
+            for allowed_confirmation in start_session_response.get_allowed_confirmations() {
+                let confirmation_type = allowed_confirmation.get_confirmation_type();
+                
+                match confirmation_type {
+                    EAuthSessionGuardType::k_EAuthSessionGuardType_None => {
 
                     },
-                    AuthSessionGuardType::EmailCode |
-                    AuthSessionGuardType::DeviceCode => {
-                        let code_type: String = if allowed_confirmation.r#type == AuthSessionGuardType::EmailCode {
+                    EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode |
+                    EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode => {
+                        let code_type: String = if confirmation_type == EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode {
                             "email"
                         } else {
                             "device"
                         }.into();
                         
                     },
-                    AuthSessionGuardType::DeviceConfirmation |
-                    AuthSessionGuardType::EmailConfirmation => {
+                    EAuthSessionGuardType::k_EAuthSessionGuardType_EmailConfirmation |
+                    EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceConfirmation => {
                         valid_actions.push(StartSessionResponseValidAction {
-                            r#type: allowed_confirmation.r#type,
+                            r#type: confirmation_type,
                             detail: None,
                         })
                     },
-                    AuthSessionGuardType::MachineToken => {
+                    EAuthSessionGuardType::k_EAuthSessionGuardType_MachineToken => {
                         // Do nothing here since this is handled by _attemptEmailCodeAuth
                     },
                     r#type => {
@@ -190,7 +266,7 @@ impl LoginSession {
 
     async fn attempt_totp_code_auth(&mut self) -> bool {
         if let Some(steam_guard_code) = &self.steam_guard_code {
-
+        
         }
 
         false
@@ -198,15 +274,19 @@ impl LoginSession {
 
     async fn submit_steam_guard_code(&mut self) -> Result<(), LoginSessionError> {
         self.verify_started(true)?;
-
+        
         if let Some(start_session_response) = &self.start_session_response {
-            let needs_email_code = start_session_response.allowed_confirmations
+            let needs_email_code = start_session_response.get_allowed_confirmations()
                 .iter()
-                .any(|allow_confirmation| allow_confirmation.r#type == AuthSessionGuardType::EmailCode);
+                .any(|allow_confirmation| {
+                    allow_confirmation.get_confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode
+                });
             let needs_totp_code = start_session_response.allowed_confirmations
                 .iter()
-                .any(|allow_confirmation| allow_confirmation.r#type == AuthSessionGuardType::DeviceCode);
-
+                .any(|allow_confirmation| {
+                    allow_confirmation.get_confirmation_type()== EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode
+                });
+            
             if !needs_email_code && !needs_totp_code {
                 return Err(LoginSessionError::LoginAttemptSteamGuardNotRequired);
             }
@@ -216,42 +296,20 @@ impl LoginSession {
             return Err(LoginSessionError::LoginSessionHasNotStarted);
         }
     }
-
+    
     fn verify_started(&self, must_have_steamid: bool) -> Result<(), LoginSessionError> {
         if self.start_session_response.is_none() {
             return Err(LoginSessionError::LoginSessionHasNotStarted);
         }
-
-        if self.polling_canceled.unwrap_or(false) {
+        
+        if self.polling_canceled {
             return Err(LoginSessionError::LoginAttemptCancelled);
         }
-
+        
         if must_have_steamid && self.steamid().is_none() {
             return Err(LoginSessionError::LoginCannotUseMethodWithScheme);
         }
-
+        
         Ok(())
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum LoginSessionError {
-    #[error("Login session has not been started yet")]
-    LoginSessionHasNotStarted,
-    #[error("Login attempt has been canceled")]
-    LoginAttemptCancelled,
-    #[error("Cannot use this method with this login scheme")]
-    LoginCannotUseMethodWithScheme,
-    #[error("No Steam Guard code is needed for this login attempt")]
-    LoginAttemptSteamGuardNotRequired,
-    #[error("Websocket CM: {}", .0)]
-    WebSocketCM(#[from] crate::transports::websocket::Error),
-    #[error("Decode error: {}", .0)]
-    Decode(#[from] crate::helpers::DecodeError),
-    #[error("The provided token is a refresh token, not an access token'")]
-    ExpectedAccessToken,
-    #[error("Token is for a different account. To work with a different account, create a new LoginSession.")]
-    TokenIsForDifferentAccount,
-    #[error("This access token belongs to a different account from the set refresh token.")]
-    AccessTokenBelongsToOtherAccount,
 }
