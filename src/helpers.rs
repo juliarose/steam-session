@@ -3,13 +3,12 @@ use steamid_ng::SteamID;
 use serde::Deserialize;
 use sha1::{Sha1, Digest};
 use bytebuffer_new::{ByteBuffer, Endian};
-use rand::Rng;
 
 pub const USER_AGENT: &str = "linux x86_64"; 
 
 pub struct DecodedQr {
-    version: u32,
-    client_id: String,
+    pub version: u32,
+    pub client_id: String,
 }
 
 /// Generates a random sessionid.
@@ -25,7 +24,7 @@ pub fn generate_sessionid() -> String {
 }
 
 
-pub fn decode_qr_url(url: &str) -> Option<DecodedQr> {
+pub fn decode_qr_url(_url: &str) -> Option<DecodedQr> {
     // if let Some((_, version_str, client_id)) = regex_match!(/^https?:\/\/s\.team\/q\/(\d+)\/(\d+)(\?|$)/) {
         // let version_str = "1";
         // let version: u32 = version_str.try_into().ok()?;
@@ -167,10 +166,6 @@ fn create_sha1_str(input: &str) -> String {
 }
 
 pub fn get_machine_id(account_name: &str) -> Vec<u8> {
-    fn get_random_str() -> String {
-        rand::thread_rng().gen::<f32>().to_string()
-    }
-    
     fn get_c_string_bytes(input: &str) -> Vec<u8> {
         let mut bytes = input.as_bytes().to_vec();
         

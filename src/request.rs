@@ -1,17 +1,5 @@
-use crate::enums::{
-    EResult,
-    AuthSessionSecurityHistory,
-    EOSType,
-};
-use crate::transports::WebSocketCMTransport;
-use std::net::IpAddr;
 use steam_session_proto::enums::ESessionPersistence;
-use steam_session_proto::steammessages_auth_steamclient::{CAuthentication_DeviceDetails, EAuthTokenPlatformType, EAuthSessionGuardType};
-use steamid_ng::SteamID;
-use url::Url;
-use reqwest::Client;
-use reqwest::header::HeaderMap;
-
+use steam_session_proto::steammessages_auth_steamclient::{EAuthTokenPlatformType, EAuthSessionGuardType};
 
 #[derive(Debug, Clone)]
 pub struct StartLoginSessionWithCredentialsDetails {
