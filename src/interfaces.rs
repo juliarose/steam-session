@@ -1,6 +1,5 @@
 use crate::enums::{
     EResult,
-    AuthSessionGuardType,
     AuthSessionSecurityHistory,
     EOSType,
 };
@@ -70,33 +69,7 @@ pub struct LoginSessionOptions {
     pub machine_id: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone)]
-pub struct AllowedConfirmation {
-	pub r#type: AuthSessionGuardType,
-	pub message: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct StartAuthSessionResponse {
-	pub client_id: u64,
-	pub request_id: Buffer,
-	pub poll_interval: u64,
-	pub allowed_confirmations: Vec<AllowedConfirmation>,
-    pub steamid: Option<SteamID>,
-}
-
-#[derive(Debug, Clone)]
-pub struct StartLoginSessionWithCredentialsDetails {
-    pub account_name: String,
-    pub password: String,
-    pub persistence: Option<ESessionPersistence>,
-    pub steam_guard_machine_token: Option<Vec<u8>>,
-    pub steam_guard_code: Option<String>,
-    pub platform_type: EAuthTokenPlatformType,
-    pub machine_id: Option<Vec<u8>>,
-    pub user_agent: Option<&'static str>,
-}
-
+// unused
 #[derive(Debug, Clone)]
 pub struct StartSessionResponse<'a> {
     pub action_required: bool,
@@ -104,44 +77,10 @@ pub struct StartSessionResponse<'a> {
     pub qr_challenge_url: Option<&'a str>,
 }
 
-pub struct SubmitSteamGuardCodeRequest {
-	pub client_id: u64,
-	pub steamid: u64,
-	pub code: String,
-	pub code_type: EAuthSessionGuardType,
-}
-
 #[derive(Debug, Clone)]
 pub struct StartSessionResponseValidAction {
     pub r#type: EAuthSessionGuardType,
     pub detail: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AuthSessionInfo<'a> {
-    pub ip: &'a str,
-    pub location: Location<'a>,
-    pub platform_type: EAuthTokenPlatformType,
-    pub device_friendly_name: &'a str,
-    pub version: u32,
-    pub login_history: AuthSessionSecurityHistory,
-    pub location_mismatch: bool,
-    pub high_usage_login: bool,
-    pub requested_persistence: ESessionPersistence,
-}
-
-#[derive(Debug, Clone)]
-pub struct Location<'a> {
-    pub geoloc: &'a str,
-    pub city: &'a str,
-    pub state: &'a str,
-}
-
-#[derive(Debug, Clone)]
-pub struct ApproveAuthSessionRequest<'a> {
-    pub qr_challenge_url: &'a str,
-    pub approve: bool,
-    pub persistence: Option<ESessionPersistence>,
 }
 
 #[derive(Debug, Clone)]
@@ -161,58 +100,9 @@ pub struct AuthenticationClientConstructorOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct StartAuthSessionRequest {
-    pub platform_type: EAuthTokenPlatformType,
-}
-
-#[derive(Debug, Clone)]
-pub struct StartAuthSessionWithCredentialsRequest {
-    pub account_name: String,
-    pub encrypted_password: String,
-    pub encryption_timestamp: u64,
-    pub remember_login: bool,
-    pub platform_type: EAuthTokenPlatformType,
-    pub persistence: ESessionPersistence,
-    pub steam_guard_machine_token: Option<Vec<u8>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct StartAuthSessionWithCredentialsResponse {
-    pub steam_id: String,
-    pub weak_token: String,
-    pub client_id: u64,
-    pub request_id: Vec<u8>,
-    pub poll_interval: u32,
-    pub allowed_confirmations: Vec<AllowedConfirmation>,
-}
-
-#[derive(Debug, Clone)]
-pub struct StartAuthSessionWithQrResponse {
-    pub challenge_url: String,
-    pub version: u32,
-    pub client_id: u64,
-    pub request_id: Buffer,
-    pub poll_interval: u32,
-    pub allowed_confirmations: Vec<AllowedConfirmation>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CheckMachineAuthRequest {
-    pub client_id: u64,
-    pub steam_id: String,
-    pub machine_auth_token: Option<String>,
-}
-
-#[derive(Debug, Clone)]
 pub struct CheckMachineAuthResponse {
     pub success: bool,
     pub result: EResult,
-}
-
-#[derive(Debug, Clone)]
-pub struct PollLoginStatusRequest {
-    pub client_id: u64,
-    pub request_id: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -239,14 +129,4 @@ pub struct GetAuthSessionInfoResponse {
     pub location_mismatch: bool,
     pub high_usage_login: bool,
     pub requested_persistence: ESessionPersistence,
-}
-
-#[derive(Debug, Clone)]
-pub struct MobileConfirmationRequest {
-    pub version: i32,
-    pub client_id: u64,
-    pub steamid: u64,
-    pub signature: Vec<u8>,
-    pub confirm: bool,
-    pub persistence: ESessionPersistence,
 }

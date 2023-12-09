@@ -10,5 +10,8 @@ pub mod transports;
 pub mod api_method;
 pub use steam_session_proto as proto;
 
+pub mod request;
+pub mod response;
+
 pub (crate) mod authentication_client;
 pub (crate) mod types;

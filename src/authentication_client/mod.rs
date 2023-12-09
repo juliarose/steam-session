@@ -1,13 +1,22 @@
+mod error;
+
+pub use error::Error;
+
 use crate::enums::EOSType;
 use crate::helpers::{decode_jwt, get_machine_id, encode_base64};
+use crate::api_method::ApiRequest;
+use crate::transports::websocket::WebSocketCMTransport;
 use crate::interfaces::{
     AuthenticationClientConstructorOptions,
-    SubmitSteamGuardCodeRequest,
-    MobileConfirmationRequest,
     PlatformData,
     DeviceDetails,
+    EncryptedPassword,
+};
+use crate::request::{
+    PollLoginStatusRequest,
     StartAuthSessionWithCredentialsRequest,
-    EncryptedPassword, PollLoginStatusRequest,
+    SubmitSteamGuardCodeRequest,
+    MobileConfirmationRequest,
 };
 use steam_session_proto::steammessages_auth_steamclient::{
     EAuthTokenPlatformType,
@@ -28,56 +37,31 @@ use steam_session_proto::steammessages_auth_steamclient::{
     CAuthentication_PollAuthSessionStatus_Response,
 };
 use steam_session_proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
-use crate::api_method::ApiRequest;
-use reqwest::Client;
-use reqwest::header::{HeaderMap, USER_AGENT, InvalidHeaderValue, HeaderValue, ORIGIN, REFERER, COOKIE};
+use reqwest::header::{HeaderMap, USER_AGENT, HeaderValue, ORIGIN, REFERER, COOKIE};
 use serde::Serialize;
-use crate::transports::WebSocketCMTransport;
-use crate::transports::websocket::Error as WebSocketCmError;
 use rsa::{RsaPublicKey, Pkcs1v15Encrypt, BigUint};
 
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("Unsupported platform type: {:?}", .0)]
-    UnsupportedPlatformType(EAuthTokenPlatformType),
-    #[error("{}", .0)]
-    InvalidHeaderValue(#[from] InvalidHeaderValue),
-    #[error("serde_qs error: {}", .0)]
-    SerdeQS(#[from] serde_qs::Error),
-    #[error("websocket error: {}", .0)]
-    Websocket(#[from] WebSocketCmError),
-    #[error("Decode error: {}", .0)]
-    Decode(#[from] crate::helpers::DecodeError),
-    #[error("Request does not expect response")]
-    NoJob,
-    #[error("Receiver error: {}", .0)]
-    RecvError(#[from] tokio::sync::oneshot::error::RecvError),
-    #[error("Failed to parse int: {}", .0)]
-    BadUint(String),
-    #[error("RSA error: {}", .0)]
-    RSA(#[from] rsa::Error),
-}
-
+/// A client for handling authentication requests.
 #[derive(Debug)]
 pub struct AuthenticationClient {
     transport: WebSocketCMTransport,
     platform_type: EAuthTokenPlatformType,
-    client: Client,
     user_agent: &'static str,
     machine_id: Option<Vec<u8>>,
 }
 
 impl AuthenticationClient {
+    /// Creates a new [`AuthenticationClient`]. 
     pub fn new(options: AuthenticationClientConstructorOptions) -> Self {
         Self {
             transport: options.transport,
             platform_type: options.platform_type,
-            client: options.client,
             user_agent: options.user_agent,
             machine_id: options.machine_id,
         }
     }
     
+    /// Sends a request.
     async fn send_request<Msg>(
         &self,
         msg: Msg,
@@ -200,6 +184,7 @@ impl AuthenticationClient {
         // todo
     }
     
+    /// Encrypts `password` for `account_name`.
     pub async fn encrypt_password(
         &self,
         account_name: String,
@@ -225,6 +210,7 @@ impl AuthenticationClient {
         })
     }
     
+    /// Gets RSA public key for `account_name`.
     pub async fn get_rsa_key(
         &self,
         account_name: String,
@@ -239,6 +225,7 @@ impl AuthenticationClient {
         ).await
     }   
     
+    /// Gets auth session info.
     async fn get_auth_session_info(
         &self,
         client_id: u64,
@@ -254,6 +241,7 @@ impl AuthenticationClient {
         ).await
     }
     
+    /// Submits mobile confirmation.
     pub async fn submit_mobile_confirmation(
         &self,
         access_token: String,
@@ -274,6 +262,7 @@ impl AuthenticationClient {
         ).await
     }
     
+    /// Generates access token for app.
     pub async fn generate_access_token_for_app(
         &self,
         refresh_token: String,
@@ -296,7 +285,8 @@ impl AuthenticationClient {
             None,
         ).await
     }
-
+    
+    /// Starts session with credentials.
     pub async fn start_session_with_credentials(
         &self,
         details: StartAuthSessionWithCredentialsRequest,
@@ -345,6 +335,7 @@ impl AuthenticationClient {
         ).await
     }
     
+    /// Polls the login status.
     pub async fn poll_login_status(
         &self,
         details: PollLoginStatusRequest,
@@ -359,7 +350,8 @@ impl AuthenticationClient {
             None,
         ).await
     }
-
+    
+    /// Submits steam guard code.
     pub async fn submit_steam_guard_code(
         &self,
         details: SubmitSteamGuardCodeRequest,

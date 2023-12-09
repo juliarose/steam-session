@@ -6,6 +6,8 @@ use crate::interfaces::{
     StartSessionResponseValidAction,
     LoginSessionOptions,
     AuthenticationClientConstructorOptions,
+};
+use crate::request::{
     StartLoginSessionWithCredentialsDetails,
     StartAuthSessionWithCredentialsRequest,
 };
