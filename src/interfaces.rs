@@ -2,7 +2,7 @@ use crate::enums::{EResult, AuthSessionSecurityHistory, EOSType};
 use crate::transports::WebSocketCMTransport;
 use std::net::IpAddr;
 use steam_session_proto::enums::ESessionPersistence;
-use steam_session_proto::steammessages_auth_steamclient::{CAuthentication_DeviceDetails, EAuthTokenPlatformType, EAuthSessionGuardType};
+use steam_session_proto::steammessages_auth_steamclient::{CAuthentication_DeviceDetails, EAuthTokenPlatformType, EAuthSessionGuardType, CAuthentication_AllowedConfirmation};
 use url::Url;
 use reqwest::Client;
 use reqwest::header::HeaderMap;
@@ -62,12 +62,11 @@ pub struct LoginSessionOptions {
     pub machine_id: Option<Vec<u8>>,
 }
 
-// unused
 #[derive(Debug, Clone)]
-pub struct StartSessionResponse<'a> {
+pub struct StartSessionResponse {
     pub action_required: bool,
     pub valid_actions: Option<Vec<StartSessionResponseValidAction>>,
-    pub qr_challenge_url: Option<&'a str>,
+    pub qr_challenge_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]

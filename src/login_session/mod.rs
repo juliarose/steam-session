@@ -5,11 +5,11 @@ pub use error::LoginSessionError;
 use crate::interfaces::{
     StartSessionResponseValidAction,
     LoginSessionOptions,
-    AuthenticationClientConstructorOptions,
+    AuthenticationClientConstructorOptions, StartSessionResponse,
 };
 use crate::request::{
     StartLoginSessionWithCredentialsDetails,
-    StartAuthSessionWithCredentialsRequest,
+    StartAuthSessionWithCredentialsRequest, SubmitSteamGuardCodeRequest,
 };
 use crate::types::DateTime;
 use crate::authentication_client::AuthenticationClient;
@@ -21,7 +21,7 @@ use steam_session_proto::enums::ESessionPersistence;
 use steam_session_proto::steammessages_auth_steamclient::{
     EAuthTokenPlatformType,
     EAuthSessionGuardType,
-    CAuthentication_BeginAuthSessionViaCredentials_Response,
+    CAuthentication_BeginAuthSessionViaCredentials_Response, CAuthentication_AllowedConfirmation,
 };
 use steamid_ng::SteamID;
 use tokio::task::JoinHandle;
@@ -181,16 +181,19 @@ impl LoginSession {
 
         None
     }
-
+    
+    /// Gets the account name.
     pub fn get_account_name(&self) -> &Option<String> {
         &self.account_name
     }
-
+    
+    /// Gets the access token.
     pub fn get_access_token(&self) -> &Option<String> {
         &self.access_token
     }
-
-    pub fn set_access_token(&mut self, access_token: String) -> Result<(), LoginSessionError> {
+    
+    /// Sets the access token.
+    fn set_access_token(&mut self, access_token: String) -> Result<(), LoginSessionError> {
         if access_token.is_empty() {
             self.access_token = None;
             return Ok(());
@@ -216,59 +219,76 @@ impl LoginSession {
             }
         }
         
+        // Everything checks out
         self.access_token = Some(access_token);
         self.access_token_set_at = Some(Utc::now());
         
         Ok(())
     }
     
+    /// Process the start session response.
     async fn process_start_session_response(
         &self,
-    ) {
+    ) -> Result<StartSessionResponse, LoginSessionError> {
         let mut valid_actions: Vec<StartSessionResponseValidAction> = Vec::new();
+        let start_session_response = self.start_session_response.as_ref()
+            .ok_or(LoginSessionError::LoginSessionHasNotStarted)?;
+        
+        for allow_confirmation in start_session_response.get_allowed_confirmations() {
+            let confirmation_type = allow_confirmation.get_confirmation_type();
 
-        if let Some(start_session_response) = &self.start_session_response {
-            for allowed_confirmation in start_session_response.get_allowed_confirmations() {
-                let confirmation_type = allowed_confirmation.get_confirmation_type();
+            match confirmation_type {
+                EAuthSessionGuardType::k_EAuthSessionGuardType_None => {
                 
-                match confirmation_type {
-                    EAuthSessionGuardType::k_EAuthSessionGuardType_None => {
-
-                    },
-                    EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode |
-                    EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode => {
-                        let code_type: String = if confirmation_type == EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode {
-                            "email"
-                        } else {
-                            "device"
-                        }.into();
-                        
-                    },
-                    EAuthSessionGuardType::k_EAuthSessionGuardType_EmailConfirmation |
-                    EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceConfirmation => {
-                        valid_actions.push(StartSessionResponseValidAction {
-                            r#type: confirmation_type,
-                            detail: None,
-                        })
-                    },
-                    EAuthSessionGuardType::k_EAuthSessionGuardType_MachineToken => {
-                        // Do nothing here since this is handled by _attemptEmailCodeAuth
-                    },
-                    r#type => {
-                        // error unknown guard type
-                    },
-                }
+                },
+                EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode => {
+                    
+                },
+                EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode => {
+                    
+                },
+                EAuthSessionGuardType::k_EAuthSessionGuardType_EmailConfirmation |
+                EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceConfirmation => {
+                    valid_actions.push(StartSessionResponseValidAction {
+                        r#type: confirmation_type,
+                        detail: None,
+                    });
+                },
+                EAuthSessionGuardType::k_EAuthSessionGuardType_MachineToken => {
+                    // Do nothing here since this is handled by _attemptEmailCodeAuth
+                },
+                r#type => {
+                    // error unknown guard type
+                    return Err(LoginSessionError::UnknownGuardType(confirmation_type));
+                },
             }
         }
+        
+        Ok(StartSessionResponse {
+            action_required: false,
+            valid_actions: Some(valid_actions),
+            qr_challenge_url: None,
+        })
     }
-
+    
     async fn attempt_email_code_auth(&self) {
         todo!()
     }
 
     async fn attempt_totp_code_auth(&mut self) -> bool {
         if let Some(steam_guard_code) = &self.steam_guard_code {
-        
+            match self.submit_steam_guard_code(steam_guard_code.clone()).await {
+                Ok(response) => {
+                    return true;
+                },
+                Err(error) => {
+                    // if (ex.eresult != EResult.TwoFactorCodeMismatch) {
+                    //     // this is some kind of important error
+                    //     throw ex;
+                    // }
+
+                },
+            }
         }
 
         false
@@ -311,6 +331,8 @@ impl LoginSession {
         Ok(())
     }
     
+    /// Refreshes the access token. As long as a `refresh_token` is set, you can call this method 
+    /// to obtain a new access token. 
     async fn refresh_access_token(&mut self) -> Result<(), LoginSessionError> {
         let refresh_token = self.refresh_token.as_ref()
             .ok_or_else(|| LoginSessionError::NoRefreshToken)?;
@@ -318,35 +340,58 @@ impl LoginSession {
             refresh_token.clone(),
             false,
         ).await?;
+        let access_token = access_token.get_access_token().to_string();
         
-        self.access_token = Some(access_token.get_access_token().to_string());
+        self.set_access_token(access_token)?;
         
         Ok(())
     }
     
-    async fn submit_steam_guard_code(&mut self) -> Result<(), LoginSessionError> {
+    /// Submits a Steam Guard code. If a Steam Guard code is needed, you can supply it using this 
+    /// method.
+    /// 
+    /// Note that an incorrect email code will fail with EResult value 
+    /// [`EResult::InvalidLoginAuthCode`] (65), and an incorrect TOTP code will fail with EResult 
+    /// value [`EResult::TwoFactorCodeMismatch`] (88).
+    async fn submit_steam_guard_code(
+        &mut self,
+        auth_code: String,
+    ) -> Result<(), LoginSessionError> {
         self.verify_started(true)?;
         
-        if let Some(start_session_response) = &self.start_session_response {
-            let needs_email_code = start_session_response.get_allowed_confirmations()
-                .iter()
-                .any(|allow_confirmation| {
-                    allow_confirmation.get_confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode
-                });
-            let needs_totp_code = start_session_response.allowed_confirmations
-                .iter()
-                .any(|allow_confirmation| {
-                    allow_confirmation.get_confirmation_type()== EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode
-                });
-            
-            if !needs_email_code && !needs_totp_code {
-                return Err(LoginSessionError::LoginAttemptSteamGuardNotRequired);
-            }
-
-            Ok(())
-        } else {
-            return Err(LoginSessionError::LoginSessionHasNotStarted);
+        let start_session_response = self.start_session_response.as_ref()
+            .ok_or(LoginSessionError::LoginSessionHasNotStarted)?;
+        let needs_email_code = start_session_response.get_allowed_confirmations()
+            .iter()
+            .any(|allow_confirmation| {
+                allow_confirmation.get_confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode
+            });
+        let needs_totp_code = start_session_response.allowed_confirmations
+            .iter()
+            .any(|allow_confirmation| {
+                allow_confirmation.get_confirmation_type()== EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode
+            });
+        
+        if !needs_email_code && !needs_totp_code {
+            return Err(LoginSessionError::LoginAttemptSteamGuardNotRequired);
         }
+        
+        let code_type = if needs_email_code {
+            EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode
+        } else {
+            EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode
+        };
+        let client_id = start_session_response.get_client_id();
+        let steamid = start_session_response.get_steamid();
+        
+        self.handler.submit_steam_guard_code(
+            client_id,
+            steamid,
+            auth_code,
+            code_type
+        ).await?;
+        
+        Ok(())
     }
     
     fn total_polling_time(&self) -> chrono::Duration {

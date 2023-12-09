@@ -1,3 +1,5 @@
+use steam_session_proto::steammessages_auth_steamclient::EAuthSessionGuardType;
+
 #[derive(Debug, thiserror::Error)]
 pub enum LoginSessionError {
     #[error("Login session has not been started yet")]
@@ -22,4 +24,6 @@ pub enum LoginSessionError {
     AuthenticationClient(#[from] crate::authentication_client::Error),
     #[error("A refresh token is required to get web cookies")]
     NoRefreshToken,
+    #[error("Unknown auth session guard type: {:?}", .0)]
+    UnknownGuardType(EAuthSessionGuardType),
 }

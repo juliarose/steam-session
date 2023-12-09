@@ -34,7 +34,7 @@ use steam_session_proto::steammessages_auth_steamclient::{
     CAuthentication_GetAuthSessionInfo_Response,
     CAuthentication_BeginAuthSessionViaCredentials_Response,
     CAuthentication_PollAuthSessionStatus_Request,
-    CAuthentication_PollAuthSessionStatus_Response,
+    CAuthentication_PollAuthSessionStatus_Response, EAuthSessionGuardType,
 };
 use steam_session_proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
 use reqwest::header::{HeaderMap, USER_AGENT, HeaderValue, ORIGIN, REFERER, COOKIE};
@@ -354,14 +354,17 @@ impl AuthenticationClient {
     /// Submits steam guard code.
     pub async fn submit_steam_guard_code(
         &self,
-        details: SubmitSteamGuardCodeRequest,
+        client_id: u64,
+        steamid: u64,
+        code: String,
+        code_type: EAuthSessionGuardType,
     ) -> Result<CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response, Error> {
         let mut msg = CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request::new();
         
-        msg.set_client_id(details.client_id);
-        msg.set_steamid(details.steamid);
-        msg.set_code(details.code);
-        msg.set_code_type(details.code_type);
+        msg.set_client_id(client_id);
+        msg.set_steamid(steamid);
+        msg.set_code(code);
+        msg.set_code_type(code_type);
 
         self.send_request(
             msg,
