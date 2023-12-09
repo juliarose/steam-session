@@ -19,11 +19,11 @@ use chrono::Duration;
 use protobuf::Message as ProtoMessage;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
-use tokio::net::TcpStream;
-use tokio::sync::oneshot;
 use rand::Rng;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use tokio::time::timeout;
+use tokio::net::TcpStream;
+use tokio::sync::oneshot;
 use tokio_tungstenite::{tungstenite, connect_async};
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream};
 use tokio_tungstenite::tungstenite::http::uri::Uri;
@@ -31,6 +31,8 @@ use tokio_tungstenite::tungstenite::http::request::Request;
 
 pub const PROTOCOL_VERSION: u32 = 65580;
 pub const PROTO_MASK: u32 = 0x80000000;
+
+const CONNECTION_TIMEOUT_SECONDS: i64 = 10;
 
 async fn wait_for_response<Msg>(
     rx: oneshot::Receiver<Result<ApiResponseBody, Error>>,
@@ -56,7 +58,7 @@ pub struct WebSocketCMTransport {
 impl WebSocketCMTransport {
     pub async fn connect() -> Result<WebSocketCMTransport, Error> {
         let cm_list = Arc::new(tokio::sync::Mutex::new(CmListCache::new()));
-        let mut transport = connect_to_cm(&cm_list).await?;
+        let transport = connect_to_cm(&cm_list).await?;
         let mut hello = CMsgClientHello::new();
         
         hello.set_protocol_version(PROTOCOL_VERSION);
@@ -81,7 +83,7 @@ impl WebSocketCMTransport {
         );
         
         Self {
-            connection_timeout: Duration::seconds(10),
+            connection_timeout: Duration::seconds(CONNECTION_TIMEOUT_SECONDS),
             websocket_write: tokio::sync::Mutex::new(websocket_write),
             filter: Arc::new(filter),
             client_sessionid,

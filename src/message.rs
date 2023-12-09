@@ -1,10 +1,10 @@
 use crate::api_method::{ApiRequest, ApiResponse};
-use crate::enums::EMsg;
 use crate::transports::websocket::Error;
 use bytes::{Buf, BytesMut};
 
-pub trait NetMessage {
-}
+// use crate::enums::EMsg;
+// pub trait NetMessage {
+// }
 
 // #[derive(Debug, Clone)]
 // pub struct RawNetMessage {
