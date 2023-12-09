@@ -11,9 +11,9 @@ use crate::interfaces::{
 };
 use crate::types::DateTime;
 use crate::authentication_client::AuthenticationClient;
-use crate::helpers::{USER_AGENT, decode_jwt};
+use crate::helpers::{USER_AGENT, decode_jwt, generate_sessionid};
 use crate::transports::WebSocketCMTransport;
-use chrono::Duration;
+use chrono::{Utc, Duration};
 use reqwest::Client;
 use steam_session_proto::enums::ESessionPersistence;
 use steam_session_proto::steammessages_auth_steamclient::{
@@ -215,7 +215,7 @@ impl LoginSession {
         }
         
         self.access_token = Some(access_token);
-        self.access_token_set_at = Some(chrono::Utc::now());
+        self.access_token_set_at = Some(Utc::now());
         
         Ok(())
     }
@@ -271,7 +271,57 @@ impl LoginSession {
 
         false
     }
-
+    
+    /// Once successfully authenticated, you can call this method to get cookies for use on the 
+    /// Steam websites. You can also manually set the `refresh_token` and then call this method 
+    /// without going through another login attempt if you already have a valid refresh token.
+    /// 
+    /// Returns an array of strings. Each string contains a cookie, e.g.
+    /// `"steamLoginSecure=blahblahblahblah"`.
+    async fn get_web_cookies(
+        &mut self,
+    ) -> Result<(), LoginSessionError> {
+        let refresh_token = self.refresh_token.as_ref()
+            .ok_or_else(|| LoginSessionError::NoRefreshToken)?;
+        let sessionid = generate_sessionid();
+        
+        // If our platform type is MobileApp or SteamClient, then our access token *is* our 
+        // session cookie. The same is likely true for WebBrowser, but we want to mimic official 
+        // behavior as closely as possible to avoid any potential future breakage.
+        if {
+            self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_SteamClient ||
+            self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_MobileApp
+        } {
+            // Refresh our access token if we either don't have one, or the token we have is 
+            // greater than 10 minutes old. Technically we could just decode the JWT and find out 
+            // when it expires (or was issued), but let's try to minimize how much we depend on 
+            // the access token being a JWT (as Valve may change it at any point).
+            if {
+                self.access_token.is_none() ||
+                self.access_token_set_at
+                    .map(|datetime| Utc::now() - datetime > Duration::minutes(10))
+                    .unwrap_or(false)
+            } {
+                self.refresh_access_token().await?;
+            }
+        }
+        
+        Ok(())
+    }
+    
+    async fn refresh_access_token(&mut self) -> Result<(), LoginSessionError> {
+        let refresh_token = self.refresh_token.as_ref()
+            .ok_or_else(|| LoginSessionError::NoRefreshToken)?;
+        let access_token = self.handler.generate_access_token_for_app(
+            refresh_token.clone(),
+            false,
+        ).await?;
+        
+        self.access_token = Some(access_token.get_access_token().to_string());
+        
+        Ok(())
+    }
+    
     async fn submit_steam_guard_code(&mut self) -> Result<(), LoginSessionError> {
         self.verify_started(true)?;
         
@@ -298,7 +348,7 @@ impl LoginSession {
     }
     
     fn total_polling_time(&self) -> chrono::Duration {
-        chrono::Utc::now() - self.polling_started_time.unwrap_or_else(|| chrono::Utc::now())
+        Utc::now() - self.polling_started_time.unwrap_or_else(|| Utc::now())
     }
     
     async fn do_poll(&mut self) {
@@ -307,7 +357,7 @@ impl LoginSession {
         }
         
         if self.polling_started_time.is_none() {
-            self.polling_started_time = Some(chrono::Utc::now());
+            self.polling_started_time = Some(Utc::now());
         }
         
         let total_polling_time = self.total_polling_time();

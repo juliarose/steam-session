@@ -32,7 +32,6 @@ use crate::api_method::ApiRequest;
 use reqwest::Client;
 use reqwest::header::{HeaderMap, USER_AGENT, InvalidHeaderValue, HeaderValue, ORIGIN, REFERER, COOKIE};
 use serde::Serialize;
-use tokio::task::JoinHandle;
 use crate::transports::WebSocketCMTransport;
 use crate::transports::websocket::Error as WebSocketCmError;
 use rsa::{RsaPublicKey, Pkcs1v15Encrypt, BigUint};
@@ -64,7 +63,6 @@ pub struct AuthenticationClient {
     transport: WebSocketCMTransport,
     platform_type: EAuthTokenPlatformType,
     client: Client,
-    transport_close_timeout: Option<JoinHandle<()>>,
     user_agent: &'static str,
     machine_id: Option<Vec<u8>>,
 }
@@ -75,7 +73,6 @@ impl AuthenticationClient {
             transport: options.transport,
             platform_type: options.platform_type,
             client: options.client,
-            transport_close_timeout: None,
             user_agent: options.user_agent,
             machine_id: options.machine_id,
         }
@@ -101,16 +98,6 @@ impl AuthenticationClient {
         } else {
             Err(Error::NoJob)
         }
-    }
-    
-    fn close(&mut self) {
-        if let Some(handle) = &self.transport_close_timeout {
-            handle.abort();
-        }
-        
-        self.transport_close_timeout = Some(tokio::task::spawn(async move {
-            // transport.close();
-        }));
     }
     
     fn get_platform_data(

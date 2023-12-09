@@ -20,4 +20,6 @@ pub enum LoginSessionError {
     AccessTokenBelongsToOtherAccount,
     #[error("Authentication client error: {}", .0)]
     AuthenticationClient(#[from] crate::authentication_client::Error),
+    #[error("A refresh token is required to get web cookies")]
+    NoRefreshToken,
 }

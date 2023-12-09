@@ -12,6 +12,19 @@ pub struct DecodedQr {
     client_id: String,
 }
 
+/// Generates a random sessionid.
+pub fn generate_sessionid() -> String {
+    // Should look like "37bf523a24034ec06c60ec61"
+    (0..12)
+        .map(|_| { 
+            let b = rand::random::<u8>();
+            
+            format!("{b:02x?}")
+        })
+        .collect()
+}
+
+
 pub fn decode_qr_url(url: &str) -> Option<DecodedQr> {
     // if let Some((_, version_str, client_id)) = regex_match!(/^https?:\/\/s\.team\/q\/(\d+)\/(\d+)(\?|$)/) {
         // let version_str = "1";
