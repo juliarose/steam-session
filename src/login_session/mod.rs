@@ -162,24 +162,17 @@ impl LoginSession {
         if let Some(start_session_response) = &self.start_session_response {
             return Some(SteamID::from(start_session_response.get_steamid()));
         }
-
+        
         let token = if let Some(access_token) = &self.access_token {
-            // let decodedToken = decodeJwt(this.accessToken);
-			// return new SteamID(decodedToken.sub);
             Some(access_token)
         } else if let Some(refresh_token) = &self.refresh_token {
             Some(refresh_token)
         } else {
             None
-        };
-
-        if let Some(token) = token {
-            // let token = this.accessToken || this.refreshToken;
-			// let decodedToken = decodeJwt(token);
-			// return new SteamID(decodedToken.sub);
-        }
-
-        None
+        }?;
+        let decoded = decode_jwt(token).ok()?;
+        
+        Some(decoded.steamid)
     }
     
     /// Gets the account name.
@@ -271,10 +264,41 @@ impl LoginSession {
         })
     }
     
-    async fn attempt_email_code_auth(&self) {
-        todo!()
+    async fn attempt_email_code_auth(&mut self) -> Result<bool, LoginSessionError> {
+        if let Some(steam_guard_code) = &self.steam_guard_code {
+            self.submit_steam_guard_code(steam_guard_code.clone()).await?;
+            
+            return Ok(true);
+        }
+        
+        let start_session_response = self.start_session_response.as_ref()
+            .ok_or(LoginSessionError::LoginSessionHasNotStarted)?;
+        let has_machine_token_confirmation = start_session_response.get_allowed_confirmations()
+            .iter()
+            .any(|allowed_confirmation| allowed_confirmation.get_confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_MachineToken);
+        
+        if {
+            self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser &&
+            has_machine_token_confirmation
+        } {
+            // let result = await this._handler.checkMachineAuthOrSendCodeEmail({
+            // 	machineAuthToken: this.steamGuardMachineToken,
+            // 	...(this._startSessionResponse as StartAuthSessionWithCredentialsResponse)
+            // });
+            
+            // this.emit('debug', `machine auth check response: ${EResult[result.result]}`);
+            
+            // if (result.result == EResult.OK) {
+            // 	// Machine auth succeeded
+            // 	setImmediate(() => this._doPoll());
+            // 	return true;
+            // }
+            todo!()
+        }
+        
+        Ok(false)
     }
-
+    
     async fn attempt_totp_code_auth(&mut self) -> bool {
         if let Some(steam_guard_code) = &self.steam_guard_code {
             match self.submit_steam_guard_code(steam_guard_code.clone()).await {
@@ -286,11 +310,10 @@ impl LoginSession {
                     //     // this is some kind of important error
                     //     throw ex;
                     // }
-
                 },
             }
         }
-
+        
         false
     }
     
@@ -300,7 +323,7 @@ impl LoginSession {
     /// 
     /// Returns an array of strings. Each string contains a cookie, e.g.
     /// `"steamLoginSecure=blahblahblahblah"`.
-    async fn get_web_cookies(
+    pub async fn get_web_cookies(
         &mut self,
     ) -> Result<(), LoginSessionError> {
         let refresh_token = self.refresh_token.as_ref()
@@ -325,6 +348,9 @@ impl LoginSession {
                     .unwrap_or(false)
             } {
                 self.refresh_access_token().await?;
+                
+                let steamid = self.steamid()
+                    .ok_or(LoginSessionError::NoRefreshToken);
             }
         }
         

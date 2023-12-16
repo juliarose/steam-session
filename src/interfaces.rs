@@ -28,7 +28,7 @@ pub struct EncryptedPassword {
 
 #[derive(Debug, Clone)]
 pub struct DeviceDetails {
-    pub device_friendly_name: &'static str,
+    pub device_friendly_name: String,
     pub platform_type: EAuthTokenPlatformType,
     pub os_type: Option<EOSType>,
     pub gaming_device_type: Option<u32>,
@@ -38,7 +38,7 @@ impl Into<CAuthentication_DeviceDetails> for DeviceDetails {
     fn into(self) -> CAuthentication_DeviceDetails {
         let mut msg = CAuthentication_DeviceDetails::new();
 
-        msg.set_device_friendly_name(self.device_friendly_name.into());
+        msg.set_device_friendly_name(self.device_friendly_name);
         msg.set_platform_type(self.platform_type);
 
         if let Some(os_type) = self.os_type {

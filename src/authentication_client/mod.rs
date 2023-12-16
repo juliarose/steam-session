@@ -3,7 +3,7 @@ mod error;
 pub use error::Error;
 
 use crate::enums::EOSType;
-use crate::helpers::{decode_jwt, get_machine_id, encode_base64};
+use crate::helpers::{decode_jwt, get_machine_id, encode_base64, get_spoofed_hostname};
 use crate::api_method::ApiRequest;
 use crate::transports::websocket::WebSocketCMTransport;
 use crate::interfaces::{
@@ -15,12 +15,12 @@ use crate::interfaces::{
 use crate::request::{
     PollLoginStatusRequest,
     StartAuthSessionWithCredentialsRequest,
-    SubmitSteamGuardCodeRequest,
     MobileConfirmationRequest,
 };
 use steam_session_proto::steammessages_auth_steamclient::{
     EAuthTokenPlatformType,
     ETokenRenewalType,
+    EAuthSessionGuardType,
     CAuthentication_DeviceDetails,
     CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request,
     CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response,
@@ -34,7 +34,7 @@ use steam_session_proto::steammessages_auth_steamclient::{
     CAuthentication_GetAuthSessionInfo_Response,
     CAuthentication_BeginAuthSessionViaCredentials_Response,
     CAuthentication_PollAuthSessionStatus_Request,
-    CAuthentication_PollAuthSessionStatus_Response, EAuthSessionGuardType,
+    CAuthentication_PollAuthSessionStatus_Response,
 };
 use steam_session_proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
 use reqwest::header::{HeaderMap, USER_AGENT, HeaderValue, ORIGIN, REFERER, COOKIE};
@@ -90,27 +90,28 @@ impl AuthenticationClient {
         #[derive(Debug, Serialize)]
         // make all keys uppercase aka screaming snake case
         #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-        struct RefererQuery {
-            pub in_client: &'static str,
-            pub website_id: &'static str,
-            pub local_hostname: &'static str,
-            pub webapi_base_url: &'static str,
-            pub store_base_url: &'static str,
-            pub use_popups: &'static str,
-            pub dev_mode: &'static str,
-            pub language: &'static str,
-            pub platform: &'static str,
-            pub country: &'static str,
-            pub launcher_type: &'static str,
-            pub in_login: &'static str,
+        struct RefererQuery<'a> {
+            pub in_client: &'a str,
+            pub website_id: &'a str,
+            pub local_hostname: &'a str,
+            pub webapi_base_url: &'a str,
+            pub store_base_url: &'a str,
+            pub use_popups: &'a str,
+            pub dev_mode: &'a str,
+            pub language: &'a str,
+            pub platform: &'a str,
+            pub country: &'a str,
+            pub launcher_type: &'a str,
+            pub in_login: &'a str,
         }
         
         match self.platform_type {
             EAuthTokenPlatformType::k_EAuthTokenPlatformType_SteamClient => {
+                let local_hostname = get_spoofed_hostname();
                 let referer_query = RefererQuery {
                     in_client: "true",
                     website_id: "Client",
-                    local_hostname: todo!(),
+                    local_hostname: &local_hostname,
                     webapi_base_url: "https://api.steampowered.com/",
                     store_base_url: "https://store.steampowered.com/",
                     use_popups: "true",
@@ -133,7 +134,7 @@ impl AuthenticationClient {
                     // Headers are actually not used since this is sent over a CM connection
                     headers,
                     device_details: DeviceDetails {
-                        device_friendly_name: referer_query.local_hostname,
+                        device_friendly_name: local_hostname,
                         platform_type: self.platform_type,
                         os_type: Some(EOSType::Win11),
                         gaming_device_type: Some(1),
@@ -152,7 +153,7 @@ impl AuthenticationClient {
                     // Headers are actually not used since this is sent over a CM connection
                     headers,
                     device_details: DeviceDetails {
-                        device_friendly_name: self.user_agent,
+                        device_friendly_name: self.user_agent.to_string(),
                         platform_type: self.platform_type,
                         os_type: None,
                         gaming_device_type: None,
@@ -170,7 +171,7 @@ impl AuthenticationClient {
                     // Headers are actually not used since this is sent over a CM connection
                     headers,
                     device_details: DeviceDetails {
-                        device_friendly_name: "Galaxy S22",
+                        device_friendly_name: String::from("Galaxy S22"),
                         platform_type: self.platform_type,
                         os_type: Some(EOSType::AndroidUnknown),
                         gaming_device_type: Some(528),
