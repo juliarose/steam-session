@@ -1,8 +1,11 @@
 use base64::{Engine as _, engine::general_purpose};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, InvalidHeaderValue, HeaderName};
 use steamid_ng::SteamID;
 use serde::Deserialize;
 use sha1::{Sha1, Digest};
 use bytebuffer_new::{ByteBuffer, Endian};
+
+use crate::authentication_client;
 
 pub const USER_AGENT: &str = "linux x86_64"; 
 
@@ -23,6 +26,19 @@ pub fn generate_sessionid() -> String {
         .collect()
 }
 
+pub fn create_api_headers() -> Result<HeaderMap, crate::authentication_client::Error> {
+    let mut headers = HeaderMap::new();
+    let sec_fetch_site = HeaderName::from_lowercase("sec-fetch-site".as_bytes())?;
+    let sec_fetch_mode = HeaderName::from_lowercase("sec-fetch-mode".as_bytes())?;
+    let sec_fetch_dest = HeaderName::from_lowercase("sec-fetch-dest".as_bytes())?;
+    
+    headers.append(ACCEPT, HeaderValue::from_str("application/json, text/plain, */*")?);
+    headers.append(sec_fetch_site, HeaderValue::from_str("cross-site")?);
+    headers.append(sec_fetch_mode, HeaderValue::from_str("cors")?);
+    headers.append(sec_fetch_dest, HeaderValue::from_str("empty")?);
+    
+    Ok(headers)
+}
 
 pub fn decode_qr_url(_url: &str) -> Option<DecodedQr> {
     // if let Some((_, version_str, client_id)) = regex_match!(/^https?:\/\/s\.team\/q\/(\d+)\/(\d+)(\?|$)/) {

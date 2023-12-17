@@ -1,16 +1,18 @@
 mod error;
 
 pub use error::Error;
+use reqwest::Client;
+use steamid_ng::SteamID;
 
 use crate::enums::EOSType;
-use crate::helpers::{decode_jwt, get_machine_id, encode_base64, get_spoofed_hostname};
+use crate::helpers::{decode_jwt, get_machine_id, encode_base64, get_spoofed_hostname, create_api_headers};
 use crate::api_method::ApiRequest;
 use crate::transports::websocket::WebSocketCMTransport;
 use crate::interfaces::{
     AuthenticationClientConstructorOptions,
     PlatformData,
     DeviceDetails,
-    EncryptedPassword,
+    EncryptedPassword, CheckMachineAuthResponse,
 };
 use crate::request::{
     PollLoginStatusRequest,
@@ -37,7 +39,7 @@ use steam_session_proto::steammessages_auth_steamclient::{
     CAuthentication_PollAuthSessionStatus_Response,
 };
 use steam_session_proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
-use reqwest::header::{HeaderMap, USER_AGENT, HeaderValue, ORIGIN, REFERER, COOKIE};
+use reqwest::header::{HeaderMap, USER_AGENT, HeaderValue, ORIGIN, REFERER, COOKIE, CONTENT_TYPE};
 use serde::Serialize;
 use rsa::{RsaPublicKey, Pkcs1v15Encrypt, BigUint};
 
@@ -46,6 +48,7 @@ use rsa::{RsaPublicKey, Pkcs1v15Encrypt, BigUint};
 pub struct AuthenticationClient {
     transport: WebSocketCMTransport,
     platform_type: EAuthTokenPlatformType,
+    client: Client,
     user_agent: &'static str,
     machine_id: Option<Vec<u8>>,
 }
@@ -56,6 +59,7 @@ impl AuthenticationClient {
         Self {
             transport: options.transport,
             platform_type: options.platform_type,
+            client: options.client,
             user_agent: options.user_agent,
             machine_id: options.machine_id,
         }
@@ -295,14 +299,14 @@ impl AuthenticationClient {
         let mut msg: CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData = CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData::new();
         let platform_data = self.get_platform_data()?;
         let mut device_details: CAuthentication_DeviceDetails = platform_data.device_details.into();
-
+        
         msg.set_account_name(details.account_name);
         msg.set_encrypted_password(details.encrypted_password);
         msg.set_encryption_timestamp(details.encryption_timestamp);
         msg.set_remember_login(details.remember_login);
         msg.set_persistence(details.persistence);
         msg.set_website_id(platform_data.website_id.into());
-
+        
         if details.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_SteamClient {
             if let Some(machine_id) = &self.machine_id {
                 device_details.set_machine_id(machine_id.clone());
@@ -310,17 +314,17 @@ impl AuthenticationClient {
                 device_details.set_machine_id(get_machine_id(msg.get_account_name()));
             }
         }
-
+        
         msg.set_device_details(device_details);
-
+        
         if let Some(steam_guard_machine_token) = details.steam_guard_machine_token {
             msg.set_guard_data(steam_guard_machine_token);
-
+            
             // if (typeof details.steamGuardMachineToken == 'string' && isJwtValidForAudience(details.steamGuardMachineToken, 'machine')) {
             //     data.guard_data = Buffer.from(details.steamGuardMachineToken, 'utf8');
             // }
         }
-
+		
 		// return {
 		// 	clientId: result.client_id,
 		// 	requestId: result.request_id,
@@ -366,10 +370,41 @@ impl AuthenticationClient {
         msg.set_steamid(steamid);
         msg.set_code(code);
         msg.set_code_type(code_type);
-
+        
         self.send_request(
             msg,
             None,
         ).await
+    }
+    
+    /// Checks machine auth or sends email code.
+    pub async fn check_machine_auth_or_send_code_email(
+        &self,
+        client_id: u64,
+        steamid: SteamID,
+        machine_auth_token: Option<String>,
+    ) -> Result<CheckMachineAuthResponse, Error> {
+        let mut headers = create_api_headers()?;
+        
+        headers.append(CONTENT_TYPE, HeaderValue::from_str("multipart/form-data")?);
+        
+        if let Some(machine_auth_token) = machine_auth_token {
+            let cookie = format!("steamMachineAuth{}={machine_auth_token}", u64::from(steamid));
+            
+            headers.append(COOKIE, HeaderValue::from_str(&cookie)?);
+        }
+        
+        let form = reqwest::multipart::Form::new()
+            .text("clientid", client_id.to_string())
+            .text("steamid", u64::from(steamid).to_string());
+        let response = self.client.post("https://login.steampowered.com/jwt/checkdevice")
+            .headers(headers)
+            .multipart(form)
+            .send()
+            .await?
+            .json::<CheckMachineAuthResponse>()
+            .await?;
+        
+        Ok(response)
     }
 }

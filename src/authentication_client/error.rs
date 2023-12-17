@@ -6,6 +6,8 @@ pub enum Error {
     UnsupportedPlatformType(EAuthTokenPlatformType),
     #[error("{}", .0)]
     InvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
+    #[error("{}", .0)]
+    InvalidHeaderName(#[from] reqwest::header::InvalidHeaderName),
     #[error("serde_qs error: {}", .0)]
     SerdeQS(#[from] serde_qs::Error),
     #[error("websocket error: {}", .0)]
@@ -20,4 +22,6 @@ pub enum Error {
     BadUint(String),
     #[error("RSA error: {}", .0)]
     RSA(#[from] rsa::Error),
+    #[error("reqwest error: {}", .0)]
+    Reqwest(#[from] reqwest::Error),
 }

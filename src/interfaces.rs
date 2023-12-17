@@ -1,6 +1,11 @@
 use crate::enums::{EResult, AuthSessionSecurityHistory, EOSType};
 use crate::transports::WebSocketCMTransport;
 use std::net::IpAddr;
+use std::str::FromStr;
+use num_enum::TryFromPrimitive;
+use serde::{Deserialize, Deserializer};
+use serde::de;
+use serde_json::Value;
 use steam_session_proto::enums::ESessionPersistence;
 use steam_session_proto::steammessages_auth_steamclient::{CAuthentication_DeviceDetails, EAuthTokenPlatformType, EAuthSessionGuardType, CAuthentication_AllowedConfirmation};
 use url::Url;
@@ -91,10 +96,46 @@ pub struct AuthenticationClientConstructorOptions {
     pub machine_id: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CheckMachineAuthResponse {
+    #[serde(default)]
     pub success: bool,
+    #[serde(deserialize_with = "from_number_or_string")]
     pub result: EResult,
+}
+
+pub fn from_number_or_string<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    T: TryFromPrimitive + TryFrom<i32>,
+    D: Deserializer<'de>
+{
+    match Value::deserialize(deserializer)? {
+        Value::String(s) => {
+            let n = s.parse::<i32>().map_err(de::Error::custom)?;
+            
+            match T::try_from(n) {
+                Ok(n) => {
+                    Ok(n)
+                },
+                Err(error) => {
+                    Err(de::Error::custom("failed to convert from primitive"))
+                },
+            }
+        },
+        Value::Number(num) => {
+            let n = num.as_u64().ok_or_else(|| de::Error::custom("invalid number"))? as i32;
+            
+            match T::try_from(n) {
+                Ok(c) => {
+                    Ok(c)
+                },
+                Err(_e) => {
+                    Err(de::Error::custom("number too large to fit in target type"))
+                }
+            }
+        },
+        _ => Err(de::Error::custom("not a number")),
+    }
 }
 
 #[derive(Debug, Clone)]
