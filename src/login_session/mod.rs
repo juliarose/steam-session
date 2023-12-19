@@ -9,7 +9,7 @@ use crate::interfaces::{
 };
 use crate::request::{
     StartLoginSessionWithCredentialsDetails,
-    StartAuthSessionWithCredentialsRequest, SubmitSteamGuardCodeRequest,
+    StartAuthSessionWithCredentialsRequest,
 };
 use crate::types::DateTime;
 use crate::authentication_client::AuthenticationClient;
@@ -21,7 +21,7 @@ use steam_session_proto::enums::ESessionPersistence;
 use steam_session_proto::steammessages_auth_steamclient::{
     EAuthTokenPlatformType,
     EAuthSessionGuardType,
-    CAuthentication_BeginAuthSessionViaCredentials_Response, CAuthentication_AllowedConfirmation,
+    CAuthentication_BeginAuthSessionViaCredentials_Response,
 };
 use steamid_ng::SteamID;
 use tokio::task::JoinHandle;
@@ -119,7 +119,7 @@ impl LoginSession {
             persistence,
         } = details;
         let client = Client::new();
-        let mut handler = create_handler(
+        let handler = create_handler(
             client.clone(),
             platform_type,
             machine_id,
@@ -229,7 +229,7 @@ impl LoginSession {
         
         for allow_confirmation in start_session_response.get_allowed_confirmations() {
             let confirmation_type = allow_confirmation.get_confirmation_type();
-
+            
             match confirmation_type {
                 EAuthSessionGuardType::k_EAuthSessionGuardType_None => {
                 

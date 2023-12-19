@@ -1,5 +1,5 @@
 use steam_session_proto::enums::ESessionPersistence;
-use steam_session_proto::steammessages_auth_steamclient::{EAuthTokenPlatformType, EAuthSessionGuardType};
+use steam_session_proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
 
 #[derive(Debug, Clone)]
 pub struct StartLoginSessionWithCredentialsDetails {
@@ -34,25 +34,6 @@ pub struct ApproveAuthSessionRequest<'a> {
     pub qr_challenge_url: &'a str,
     pub approve: bool,
     pub persistence: Option<ESessionPersistence>,
-}
-
-pub struct SubmitSteamGuardCodeRequest {
-    pub client_id: u64,
-    pub steamid: u64,
-    pub code: String,
-    pub code_type: EAuthSessionGuardType,
-}
-
-#[derive(Debug, Clone)]
-pub struct PollLoginStatusRequest {
-    pub client_id: u64,
-    pub request_id: Vec<u8>,
-}
-#[derive(Debug, Clone)]
-pub struct CheckMachineAuthRequest {
-    pub client_id: u64,
-    pub steam_id: String,
-    pub machine_auth_token: Option<String>,
 }
 
 #[derive(Debug, Clone)]

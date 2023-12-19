@@ -1,11 +1,9 @@
 use base64::{Engine as _, engine::general_purpose};
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, InvalidHeaderValue, HeaderName};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, HeaderName};
 use steamid_ng::SteamID;
 use serde::Deserialize;
 use sha1::{Sha1, Digest};
 use bytebuffer_new::{ByteBuffer, Endian};
-
-use crate::authentication_client;
 
 pub const USER_AGENT: &str = "linux x86_64"; 
 
