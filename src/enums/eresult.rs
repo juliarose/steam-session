@@ -1,7 +1,8 @@
 use num_enum::{TryFromPrimitive, IntoPrimitive};
+use serde::{Serialize, Deserialize};
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, Clone, Copy, Eq, PartialEq, TryFromPrimitive, IntoPrimitive)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, TryFromPrimitive, IntoPrimitive, Serialize, Deserialize)]
 #[repr(i32)]
 pub enum EResult {
     Invalid = 0,

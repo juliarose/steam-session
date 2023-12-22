@@ -26,14 +26,11 @@ pub fn generate_sessionid() -> String {
 
 pub fn create_api_headers() -> Result<HeaderMap, crate::authentication_client::Error> {
     let mut headers = HeaderMap::new();
-    let sec_fetch_site = HeaderName::from_lowercase("sec-fetch-site".as_bytes())?;
-    let sec_fetch_mode = HeaderName::from_lowercase("sec-fetch-mode".as_bytes())?;
-    let sec_fetch_dest = HeaderName::from_lowercase("sec-fetch-dest".as_bytes())?;
     
     headers.append(ACCEPT, HeaderValue::from_str("application/json, text/plain, */*")?);
-    headers.append(sec_fetch_site, HeaderValue::from_str("cross-site")?);
-    headers.append(sec_fetch_mode, HeaderValue::from_str("cors")?);
-    headers.append(sec_fetch_dest, HeaderValue::from_str("empty")?);
+    headers.append("sec-fetch-site", HeaderValue::from_str("cross-site")?);
+    headers.append("sec-fetch-mode", HeaderValue::from_str("cors")?);
+    headers.append("sec-fetch-dest", HeaderValue::from_str("empty")?);
     
     Ok(headers)
 }
@@ -65,7 +62,9 @@ pub enum DecodeError {
 
 #[derive(Debug, Deserialize)]
 pub struct JWT {
+    #[serde(rename = "sub")]
     pub steamid: SteamID,
+    #[serde(rename = "aud")]
     pub audience: Vec<String>,
 }
 

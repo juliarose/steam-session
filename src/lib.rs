@@ -10,6 +10,7 @@ pub mod transports;
 pub mod api_method;
 pub use steam_session_proto as proto;
 
+pub use login_session::LoginSession;
 pub mod request;
 pub mod response;
 

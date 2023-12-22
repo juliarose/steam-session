@@ -10,7 +10,7 @@ pub enum Error {
     NoCmServer,
     #[error("{}", .0)]
     CmServer(#[from] cm_list_cache::Error),
-    #[error("IO error with websocket: {}", .0)]
+    #[error("IO: {}", .0)]
     OI(#[from] std::io::Error),
     #[error("HTTP error with websocket: {}", .0)]
     Http(#[from] tokio_tungstenite::tungstenite::http::Error),
@@ -40,4 +40,8 @@ pub enum Error {
     ResponseError(String),
     #[error("Received ClientLogOnResponse with result: {:?} (try another CM)", .0)]
     ClientLogOnResponseTryAnotherCM(EResult),
+    #[error("Received EResult other than OK: {:?}", .0)]
+    EResultNotOK(EResult),
+    #[error("Parsed URL does not contain hostname")]
+    UrlNoHostName,
 }

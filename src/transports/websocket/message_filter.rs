@@ -44,6 +44,8 @@ impl MessageFilter {
                 match res {
                     Ok(message) => match message {
                         tungstenite::Message::Binary(buffer) => {
+                            log::debug!("Got {} bytes", buffer.len());
+                            
                             if let Err(error) = handle_ws_message(&filter_send, buffer) {
                                 log::warn!("Error handling websocket message: {}", error);
                             }
@@ -75,11 +77,12 @@ fn process_multi_message(
 ) -> Result<(), Error> {
     let message = CMsgMulti::parse_from_bytes(body_buffer)?;
     let payload = message.get_message_body();
-    let mut s = String::new();
+    log::debug!("Process multi {} bytes", payload.len());
+    let mut s = Vec::new();
     let payload = if message.get_size_unzipped() != 0 {
-        GzDecoder::new(payload).read_to_string(&mut s)?;
+        GzDecoder::new(payload).read_to_end(&mut s)?;
         
-        s.as_bytes()
+        s.as_slice()
     } else {
         payload
     };
@@ -89,7 +92,6 @@ fn process_multi_message(
         let mut chunk_buffer: Vec<u8> = vec![0; chunk_size as usize];
         
         cursor.read(&mut chunk_buffer)?;
-        
         check_ws_message(filter, chunk_buffer)?;
     }
     
@@ -121,6 +123,7 @@ fn parse_message(msg: Vec<u8>) -> Result<MessageData, Error> {
         return Err(Error::UnexpectedNonProtobufMessage(raw_emsg));
     }
     
+    let raw_emsg = raw_emsg & !PROTO_MASK;
     let header = CMsgProtoBufHeader::parse_from_bytes(&header_buffer)?;
     let client_sessionid = header.get_client_sessionid();
     let emsg = EMsg::try_from(raw_emsg)
@@ -138,7 +141,10 @@ fn parse_message(msg: Vec<u8>) -> Result<MessageData, Error> {
     })
 }
 
-fn check_ws_message(filter: &MessageFilter, msg: Vec<u8>) -> Result<Option<(EMsg, Vec<u8>)>, Error> {
+fn check_ws_message(
+    filter: &MessageFilter,
+    msg: Vec<u8>,
+) -> Result<Option<(EMsg, Vec<u8>)>, Error> {
     let MessageData {
         eresult,
         emsg,
@@ -152,20 +158,24 @@ fn check_ws_message(filter: &MessageFilter, msg: Vec<u8>) -> Result<Option<(EMsg
         filter.client_sessionid.store(client_sessionid, Ordering::Relaxed);
     }
     
-    // I'm not sure when this would be 0
-    log::debug!("handle_ws_message jobid {jobid_target}");
+    log::debug!("Handle {emsg:?} (jobid {jobid_target})");
     
     if jobid_target != 0 {
         if let Some((_, tx)) = filter
             .job_id_filters
             .remove(&jobid_target)
         {
+            let message = if eresult == EResult::OK {
+                Ok(ApiResponseBody {
+                    eresult: Some(eresult),
+                    error_message: None,
+                    body: Some(body),
+                })
+            } else {
+                Err(Error::EResultNotOK(eresult))
+            };
             // todo maybe propogate the error
-            let _ = tx.send(Ok(ApiResponseBody {
-                eresult: Some(eresult),
-                error_message: None,
-                body: Some(body),
-            }));
+            let _ = tx.send(message);
             
             return Ok(None);
         }

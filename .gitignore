@@ -18,3 +18,5 @@ information
 
 .DS_Store
 .vscode/
+
+.env

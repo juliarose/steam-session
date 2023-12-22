@@ -32,7 +32,7 @@ use tokio_tungstenite::tungstenite::http::request::Request;
 pub const PROTOCOL_VERSION: u32 = 65580;
 pub const PROTO_MASK: u32 = 0x80000000;
 
-const CONNECTION_TIMEOUT_SECONDS: i64 = 10;
+// const CONNECTION_TIMEOUT_SECONDS: i64 = 10;
 
 async fn wait_for_response<Msg>(
     rx: oneshot::Receiver<Result<ApiResponseBody, Error>>,
@@ -41,15 +41,21 @@ where
     Msg: ApiRequest,
     <Msg as ApiRequest>::Response: Send,
 {
-    timeout(std::time::Duration::from_secs(5), rx)
-        .await
-        .map_err(|_| Error::Timeout)???
-        .into_response::<Msg>()
+    match timeout(std::time::Duration::from_secs(5), rx).await {
+        Ok(response) => {
+            let body = response??;
+            
+            body.into_response::<Msg>()
+        },
+        Err(_error) => {
+            log::debug!("Timed out waiting for response from {}", Msg::NAME);
+            Err(Error::Timeout)
+        },
+    }
 }
 
 #[derive(Debug)]
 pub struct WebSocketCMTransport {
-    connection_timeout: Duration,
     websocket_write: tokio::sync::Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>>,
     filter: Arc<MessageFilter>,
     client_sessionid: Arc<AtomicI32>,
@@ -72,7 +78,7 @@ impl WebSocketCMTransport {
         Ok(transport)
     }
     
-    pub fn new(
+    fn new(
         source: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
         websocket_write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
     ) -> Self {
@@ -83,7 +89,6 @@ impl WebSocketCMTransport {
         );
         
         Self {
-            connection_timeout: Duration::seconds(CONNECTION_TIMEOUT_SECONDS),
             websocket_write: tokio::sync::Mutex::new(websocket_write),
             filter: Arc::new(filter),
             client_sessionid,
@@ -164,13 +169,16 @@ impl WebSocketCMTransport {
         proto_header.write_to_vec(&mut encoded_proto_header)?;
         
         let mut header: Vec<u8> = Vec::new();
-        let emsg = (emsg as u32 | PROTO_MASK) >> 0;
         let header_length = encoded_proto_header.len() as u32;
         
-        header.write_u32::<LittleEndian>(emsg)?; // 4
+        header.write_u32::<LittleEndian>((emsg as u32 | PROTO_MASK) >> 0)?; // 4
         header.write_u32::<LittleEndian>(header_length)?; // 8
         
-        log::debug!("Send {emsg:?}");
+        if let Some(jobid) = jobid {
+            log::debug!("Send {emsg:?} ({}; jobid {jobid})", service_method_name.unwrap_or("unnamed"));
+        } else {
+            log::debug!("Send {emsg:?} ({})", service_method_name.unwrap_or("unnamed"));
+        }
         
         let mut message: Vec<u8> = Vec::new();
         
@@ -186,6 +194,14 @@ impl WebSocketCMTransport {
     }
 }
 
+/// Generate a random key for the `Sec-WebSocket-Key` header.
+fn generate_key() -> String {
+    // a base64-encoded (see Section 4 of [RFC4648]) value that,
+    // when decoded, is 16 bytes in length (RFC 6455)
+    let r: [u8; 16] = rand::random();
+    data_encoding::BASE64.encode(&r)
+}
+
 async fn connect_to_cm(cm_list: &Arc<tokio::sync::Mutex<CmListCache>>) -> Result<WebSocketCMTransport, Error> {
     let cm_server = {
         let mut cm_list = cm_list.lock().await;
@@ -194,10 +210,25 @@ async fn connect_to_cm(cm_list: &Arc<tokio::sync::Mutex<CmListCache>>) -> Result
         // pick a random server
         cm_list.pick_random_websocket_server()
     }.ok_or(Error::NoCmServer)?;
-    let uri = format!("wss://{}/cmsocket/", cm_server.endpoint).parse::<Uri>()?;
+    let connect_addr = format!("wss://{}/cmsocket/", cm_server.endpoint);
+    // let connect_timeout = Duration::seconds(CONNECTION_TIMEOUT_SECONDS);
+    let uri = connect_addr.parse::<Uri>()?;
+    let authority = uri.authority()
+        .ok_or(Error::UrlNoHostName)?.as_str();
+    let host = authority
+        .find('@')
+        .map(|idx| authority.split_at(idx + 1).1)
+        .unwrap_or_else(|| authority);
     let request = Request::builder()
+        .header("batch-test", "true")
+        .header("Host", host)
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header("Sec-WebSocket-Key", generate_key())
         .uri(uri)
         .body(())?;
+    // todo use timeout when connecting
     let (ws_stream, _) = connect_async(request).await?;
     let (ws_write, ws_read) = ws_stream.split();
     let transport = WebSocketCMTransport::new(
