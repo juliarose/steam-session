@@ -470,30 +470,24 @@ impl LoginSession {
         async fn any_cookie(request: RequestBuilder) -> Option<Vec<String>> {
             let response = request.send().await.ok()?;
             let headers = response.headers();
-            let set_cookie = headers.get(SET_COOKIE)?.to_str().ok()?;
-            
-            log::debug!("{set_cookie}");
-            
-            if set_cookie.is_empty() {
-                return None;
-            }
-            
-            if !set_cookie.contains("steamLoginSecure=") {
-                return None;
-            }
-            
-            // todo these maybe encoded
-            // refer to https://docs.rs/cookie/latest/cookie/struct.Cookie.html#method.split_parse_encoded
-            // this can also probably be accomplished without using the cookie crate
-            let cookies = Cookie::split_parse(set_cookie)
+            let set_cookie = headers.get_all(SET_COOKIE);
+            let cookies = set_cookie
                 .into_iter()
-                .map(|cookie| {
-                    cookie.map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+                .flat_map(|header| {
+                    let value = header.to_str().ok()?;
+                    let cookie = Cookie::parse(value).ok()?;
+                    
+                    Some(format!("{}={}", cookie.name(), cookie.value()))
                 })
-                .collect::<Result<Vec<_>, _>>()
-                .ok()?;
+                .collect::<Vec<String>>();
             
-            log::debug!("{cookies:?}");
+            if cookies.is_empty() {
+                return None;
+            }
+            
+            if !cookies.iter().any(|cookie| cookie.contains("steamLoginSecure=")) {
+                return None;
+            }
             
             Some(cookies)
         }
@@ -538,8 +532,6 @@ impl LoginSession {
             ]);
         }
         
-        log::debug!("sessionid {sessionid}");
-        
         let headers = create_api_headers()?;
         let form = reqwest::multipart::Form::new()
             .text("nonce", refresh_token.clone())
@@ -559,8 +551,6 @@ impl LoginSession {
             }
         }
         
-        log::debug!("Got finalizelogin response {response:?}");
-        
         let mut transfers = response.transfer_info
             .ok_or(LoginSessionError::MalformedResponse)?
             .into_iter()
@@ -577,7 +567,6 @@ impl LoginSession {
                             form = form.text(key, value.to_string());
                         },
                         Value::String(value) => {
-                            println!("set {key} {value}");
                             form = form.text(key, value);
                         },
                         _ => {},

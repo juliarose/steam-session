@@ -64,7 +64,10 @@ impl MessageFilter {
         (filter, rx)
     }
     
-    pub fn on_job_id(&self, id: u64) -> oneshot::Receiver<Result<ApiResponseBody, Error>> {
+    pub fn on_job_id(
+        &self,
+        id: u64,
+    ) -> oneshot::Receiver<Result<ApiResponseBody, Error>> {
         let (tx, rx) = oneshot::channel();
         self.job_id_filters.insert(id, tx);
         rx
