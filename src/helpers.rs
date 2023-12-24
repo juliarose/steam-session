@@ -1,53 +1,22 @@
 use std::str::Utf8Error;
 
 use base64::{Engine as _, engine::general_purpose};
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, HeaderName};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT};
 use steamid_ng::SteamID;
 use serde::Deserialize;
 use sha1::{Sha1, Digest};
 use bytebuffer_new::{ByteBuffer, Endian};
+use lazy_regex::regex_captures;
 
 pub const USER_AGENT: &str = "linux x86_64"; 
+const CHARS: [char; 26] = [
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+    'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y' ,'Z'
+];
 
 pub struct DecodedQr {
     pub version: u32,
     pub client_id: String,
-}
-
-/// Generates a random sessionid.
-pub fn generate_sessionid() -> String {
-    // Should look like "37bf523a24034ec06c60ec61"
-    (0..12)
-        .map(|_| { 
-            let b = rand::random::<u8>();
-            
-            format!("{b:02x?}")
-        })
-        .collect()
-}
-
-pub fn create_api_headers() -> Result<HeaderMap, crate::authentication_client::Error> {
-    let mut headers = HeaderMap::new();
-    
-    headers.append(ACCEPT, HeaderValue::from_str("application/json, text/plain, */*")?);
-    headers.append("sec-fetch-site", HeaderValue::from_str("cross-site")?);
-    headers.append("sec-fetch-mode", HeaderValue::from_str("cors")?);
-    headers.append("sec-fetch-dest", HeaderValue::from_str("empty")?);
-    
-    Ok(headers)
-}
-
-pub fn decode_qr_url(_url: &str) -> Option<DecodedQr> {
-    // if let Some((_, version_str, client_id)) = regex_match!(/^https?:\/\/s\.team\/q\/(\d+)\/(\d+)(\?|$)/) {
-        // let version_str = "1";
-        // let version: u32 = version_str.try_into().ok()?;
-        // return {
-        //     client_id,
-        //     version,
-        // };
-    // }
-    
-    None
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -70,6 +39,44 @@ pub struct JWT {
     pub steamid: SteamID,
     #[serde(rename = "aud")]
     pub audience: Vec<String>,
+}
+
+/// Generates a random sessionid.
+pub fn generate_sessionid() -> String {
+    // Should look like "37bf523a24034ec06c60ec61"
+    (0..12)
+        .map(|_| { 
+            let b = rand::random::<u8>();
+            
+            format!("{b:02x?}")
+        })
+        .collect()
+}
+
+/// Creates API headers.
+pub fn create_api_headers() -> Result<HeaderMap, crate::authentication_client::Error> {
+    let mut headers = HeaderMap::new();
+    
+    headers.append(ACCEPT, HeaderValue::from_str("application/json, text/plain, */*")?);
+    headers.append("sec-fetch-site", HeaderValue::from_str("cross-site")?);
+    headers.append("sec-fetch-mode", HeaderValue::from_str("cors")?);
+    headers.append("sec-fetch-dest", HeaderValue::from_str("empty")?);
+    
+    Ok(headers)
+}
+
+/// Decodes QR url.
+pub fn decode_qr_url(url: &str) -> Option<DecodedQr> {
+    if let Some((_, version_str, client_id, _)) = regex_captures!(r#"/^https?:\/\/s\.team\/q\/(\d+)\/(\d+)(\?|$)/"#, url) {
+        let version: u32 = version_str.parse::<u32>().ok()?;
+        
+        return Some(DecodedQr {
+            version,
+            client_id: client_id.into(),
+        });
+    }
+    
+    None
 }
 
 pub fn decode_jwt(jwt: &str) -> Result<JWT, DecodeError> {
@@ -118,6 +125,7 @@ where
     general_purpose::STANDARD_NO_PAD.encode(input)
 }
 
+/// Checks if JWT  is valid for audience.
 pub fn is_jwt_valid_for_audience(
     jwt: &str,
     audience: &str,
@@ -136,11 +144,7 @@ pub fn is_jwt_valid_for_audience(
     false
 }
 
-const CHARS: [char; 26] = [
-    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
-    'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y' ,'Z'
-];
-
+/// Gets spoofed hostname.
 pub fn get_spoofed_hostname() -> String {
     let mut hash = create_sha1(USER_AGENT.as_bytes());
     
@@ -157,37 +161,31 @@ pub fn get_spoofed_hostname() -> String {
     output
 }
 
-fn create_sha1(input: &[u8]) -> Vec<u8> {
-    let mut hasher = Sha1::new();
-    
-    hasher.update(input);
-    hasher.finalize().to_vec()
-}
-
-fn bytes_to_hex_string(input: &[u8]) -> String {
-    use std::fmt::Write;
-    
-    let mut s = String::with_capacity(2 * input.len());
-    
-    for byte in input {
-        write!(s, "{:02X}", byte).unwrap();
-    }
-    
-    s
-}
-
-fn create_sha1_str(input: &str) -> String {
-    let sha_bytes = create_sha1(input.as_bytes());
-    
-    bytes_to_hex_string(&sha_bytes)
-}
-
+/// Generates a machine id.
 pub fn get_machine_id(account_name: &str) -> Vec<u8> {
     fn get_c_string_bytes(input: &str) -> Vec<u8> {
         let mut bytes = input.as_bytes().to_vec();
         
         bytes.push(0);
         bytes
+    }
+
+    fn create_sha1_str(input: &str) -> String {
+        let sha_bytes = create_sha1(input.as_bytes());
+        
+        bytes_to_hex_string(&sha_bytes)
+    }
+
+    fn bytes_to_hex_string(input: &[u8]) -> String {
+        use std::fmt::Write;
+        
+        let mut s = String::with_capacity(2 * input.len());
+        
+        for byte in input {
+            write!(s, "{:02X}", byte).unwrap();
+        }
+        
+        s
     }
     
     let mut buffer = ByteBuffer::new();
@@ -212,4 +210,11 @@ pub fn get_machine_id(account_name: &str) -> Vec<u8> {
     buffer.write_i8(8);
     buffer.write_i8(8);
     buffer.to_bytes()
+}
+
+fn create_sha1(input: &[u8]) -> Vec<u8> {
+    let mut hasher = Sha1::new();
+    
+    hasher.update(input);
+    hasher.finalize().to_vec()
 }

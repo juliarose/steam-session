@@ -4,7 +4,6 @@ pub mod web_api;
 pub mod websocket;
 pub mod cm_server;
 pub mod cm_list_cache;
-pub mod helpers;
 
 use crate::transports::websocket::Error;
 use crate::api_method::{ApiRequest, ApiResponse};

@@ -21,11 +21,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         machine_id: None,
         user_agent: None,
     };
-    let mut session = LoginSession::connect(LoginSessionOptions {
-        platform_type: EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser,
-        user_agent: None,
-        machine_id: None,
-    }).await?;
+    let mut session = LoginSession::builder(EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser)
+        .connect()
+        .await?;
     let response = session.start_with_credentials(details).await?;
     
     if response.is_2fa() {

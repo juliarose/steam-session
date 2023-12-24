@@ -1,21 +1,12 @@
 mod error;
-mod polling;
+mod builder;
+mod helpers;
 
-use std::collections::HashMap;
-
-use cookie::Cookie;
 pub use error::LoginSessionError;
-use futures::StreamExt;
-use futures::stream::FuturesOrdered;
-use reqwest::header::SET_COOKIE;
-use serde::Deserialize;
-use serde_json::Value;
+pub use builder::LoginSessionBuilder;
 
 use crate::enums::EResult;
-use crate::interfaces::{
-    LoginSessionOptions,
-    AuthenticationClientConstructorOptions, 
-};
+use crate::interfaces::LoginSessionOptions;
 use crate::response::{
     StartSessionResponseValidAction,
     StartSessionResponse,
@@ -27,8 +18,15 @@ use crate::request::{
 use crate::serializers::from_number_or_string_option;
 use crate::types::DateTime;
 use crate::authentication_client::AuthenticationClient;
-use crate::helpers::{USER_AGENT, decode_jwt, generate_sessionid, create_api_headers};
-use crate::transports::WebSocketCMTransport;
+use crate::helpers::{decode_jwt, generate_sessionid, create_api_headers};
+
+use std::collections::HashMap;
+use cookie::Cookie;
+use futures::StreamExt;
+use futures::stream::FuturesOrdered;
+use reqwest::header::SET_COOKIE;
+use serde::Deserialize;
+use serde_json::Value;
 use chrono::{Utc, Duration};
 use reqwest::{Client, RequestBuilder};
 use steam_session_proto::enums::ESessionPersistence;
@@ -38,7 +36,6 @@ use steam_session_proto::steammessages_auth_steamclient::{
     CAuthentication_BeginAuthSessionViaCredentials_Response,
 };
 use steamid_ng::SteamID;
-use tokio::task::JoinHandle;
 use url::form_urlencoded;
 
 const LOGIN_TIMEOUT_SECONDS: i64 = 30;
@@ -47,8 +44,9 @@ const LOGIN_TIMEOUT_SECONDS: i64 = 30;
 pub struct LoginSession {
     pub login_timeout: Duration,
     account_name: Option<String>,
-    access_token: Option<String>,
     refresh_token: Option<String>,
+    access_token: Option<String>,
+    access_token_set_at: Option<DateTime>,
     platform_type: EAuthTokenPlatformType,
     client: Client,
     handler: AuthenticationClient,
@@ -57,29 +55,16 @@ pub struct LoginSession {
     start_session_response: Option<CAuthentication_BeginAuthSessionViaCredentials_Response>,
     had_remote_interaction: bool,
     polling_started_time: Option<DateTime>,
-    poll_timer: Option<JoinHandle<()>>,
     polling_canceled: bool,
-    access_token_set_at: Option<DateTime>,
-}
-
-async fn create_handler(
-    client: Client,
-    platform_type: EAuthTokenPlatformType,
-    machine_id: Option<Vec<u8>>,
-    user_agent: Option<&'static str>,
-) -> Result<AuthenticationClient, LoginSessionError> {
-    let transport = WebSocketCMTransport::connect().await?;
-    
-    Ok(AuthenticationClient::new(AuthenticationClientConstructorOptions {
-        platform_type,
-        client,
-        machine_id,
-        transport,
-        user_agent: user_agent.unwrap_or(USER_AGENT),
-    }))
 }
 
 impl LoginSession {
+    /// Creates a new [`LoginSessionBuilder`].
+    pub fn builder(platform_type: EAuthTokenPlatformType) -> LoginSessionBuilder {
+        LoginSessionBuilder::new(platform_type)
+    }
+    
+    /// Creates a connection for authentication.
     pub async fn connect(
         options: LoginSessionOptions,
     ) -> Result<Self, LoginSessionError> {
@@ -94,7 +79,7 @@ impl LoginSession {
         
         let platform_type = options.platform_type;
         let client = Client::new();
-        let handler = create_handler(
+        let handler = helpers::create_handler(
             client.clone(),
             platform_type,
             options.machine_id,
@@ -105,6 +90,8 @@ impl LoginSession {
             login_timeout: Duration::seconds(LOGIN_TIMEOUT_SECONDS),
             account_name: None,
             refresh_token: None,
+            access_token: None,
+            access_token_set_at: None,
             platform_type,
             client,
             handler,
@@ -113,10 +100,7 @@ impl LoginSession {
             start_session_response: None,
             had_remote_interaction: false,
             polling_started_time: None,
-            poll_timer: None,
             polling_canceled: false,
-            access_token: None,
-            access_token_set_at: None,
         })
     }
     
