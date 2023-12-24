@@ -13,7 +13,7 @@ use serde_json::Value;
 use crate::enums::EResult;
 use crate::interfaces::{
     LoginSessionOptions,
-    AuthenticationClientConstructorOptions, from_number_or_string_option, 
+    AuthenticationClientConstructorOptions, 
 };
 use crate::response::{
     StartSessionResponseValidAction,
@@ -23,6 +23,7 @@ use crate::request::{
     StartLoginSessionWithCredentialsDetails,
     StartAuthSessionWithCredentialsRequest,
 };
+use crate::serializers::from_number_or_string_option;
 use crate::types::DateTime;
 use crate::authentication_client::AuthenticationClient;
 use crate::helpers::{USER_AGENT, decode_jwt, generate_sessionid, create_api_headers};
