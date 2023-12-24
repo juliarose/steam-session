@@ -5,7 +5,7 @@ use reqwest::Client;
 use steamid_ng::SteamID;
 
 use crate::enums::EOSType;
-use crate::helpers::{decode_jwt, get_machine_id, encode_base64, get_spoofed_hostname, create_api_headers};
+use crate::helpers::{decode_jwt, get_machine_id, encode_base64, get_spoofed_hostname, create_api_headers, DecodeError};
 use crate::api_method::ApiRequest;
 use crate::transports::websocket::WebSocketCMTransport;
 use crate::interfaces::{
@@ -166,14 +166,16 @@ impl AuthenticationClient {
         &self,
         client_id: u64,
         steamid: SteamID,
-        machine_auth_token: Option<String>,
+        steam_guard_machine_auth_token: Option<&[u8]>,
     ) -> Result<CheckMachineAuthResponse, Error> {
         let mut headers = create_api_headers()?;
         
         headers.append(CONTENT_TYPE, HeaderValue::from_str("multipart/form-data")?);
         
-        if let Some(machine_auth_token) = machine_auth_token {
-            let cookie = format!("steamMachineAuth{}={machine_auth_token}", u64::from(steamid));
+        if let Some(steam_guard_machine_auth_token) = steam_guard_machine_auth_token {
+            let steam_guard_machine_auth_token = std::str::from_utf8(steam_guard_machine_auth_token)
+                .map_err(|error| Error::Decode(DecodeError::UTF8(error)))?;
+            let cookie = format!("steamMachineAuth{}={steam_guard_machine_auth_token}", u64::from(steamid));
             
             headers.append(COOKIE, HeaderValue::from_str(&cookie)?);
         }

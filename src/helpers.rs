@@ -1,3 +1,5 @@
+use std::str::Utf8Error;
+
 use base64::{Engine as _, engine::general_purpose};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, HeaderName};
 use steamid_ng::SteamID;
@@ -58,6 +60,8 @@ pub enum DecodeError {
     Json(#[from] serde_json::Error),
     #[error("Invalid SteamID: {}", .0)]
     InvalidSteamID(String),
+    #[error("UTF8 error: {}", .0)]
+    UTF8(#[from] Utf8Error),
 }
 
 #[derive(Debug, Deserialize)]

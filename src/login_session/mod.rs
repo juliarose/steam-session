@@ -1,4 +1,5 @@
 mod error;
+mod polling;
 
 use std::collections::HashMap;
 
@@ -84,12 +85,12 @@ impl LoginSession {
     ) -> Result<Self, LoginSessionError> {
         // probably reqwest client
         // let agent:HTTPS.Agent = options.agent || new HTTPS.Agent({keepAlive: true});
-		
-		// if (options.httpProxy) {
-		// 	agent = StdLib.HTTP.getProxyAgent(true, options.httpProxy) as HTTPS.Agent;
-		// } else if (options.socksProxy) {
-		// 	agent = new SocksProxyAgent(options.socksProxy);
-		// }
+        
+        // if (options.httpProxy) {
+        // 	agent = StdLib.HTTP.getProxyAgent(true, options.httpProxy) as HTTPS.Agent;
+        // } else if (options.socksProxy) {
+        // 	agent = new SocksProxyAgent(options.socksProxy);
+        // }
         
         let platform_type = options.platform_type;
         let client = Client::new();
@@ -119,7 +120,40 @@ impl LoginSession {
         })
     }
     
-    pub async fn start_session_with_credentials(
+    /// Starts a new login attempt using your account credentials.
+    /// 
+    /// If you're logging in with [`EAuthTokenPlatformType::k_EAuthTokenPlatformType_SteamClient`], 
+    /// you can supply a Buffer containing the SHA-1 hash of your sentry file for
+    /// `steam_guard_machine_token`.
+    /// 
+    /// If you supply a `steam_guard_code` here and you're using email-based Steam Guard, Steam 
+    /// will send you a new Steam Guard email if you're using [`EAuthTokenPlatformType::k_EAuthTokenPlatformType_SteamClient`]
+    /// or [`EAuthTokenPlatformType::k_EAuthTokenPlatformType_MobileApp`]. You would ideally keep 
+    /// your [`LoginSession`] active that generated your first email, and pass the code using
+    /// `submit_steam_guard_code` instead of creating a new [`LoginSession`] and supplying the 
+    /// code to `start_with_credentials`.
+    /// 
+    /// On success returns a [`StartSessionResponse`]. Check `allowed_confirmations` for how to 
+    /// respond to the response.
+    /// 
+    /// Here's a list of which guard types might be present in this method's response, and how you 
+    /// should proceed:
+    ///
+    /// - [`EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode`]: An email was sent to you 
+    /// containing a code (`detail` contains your email address' domain, e.g. `gmail.com`). You 
+    /// should get that code and either call {@link submitSteamGuardCode}, or create a new 
+    /// [`LoginSession`] and supply that code to the `steam_guard_code` property when calling
+    /// `start_with_credentials`.
+    /// - [`EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode`]: You need to supply a TOTP 
+    /// code from your mobile authenticator (or by using 
+    /// [another-steam-totp](https://crates.io/crates/another-steam-totp)). Get that code and 
+    /// either call `submit_steam_guard_code`, or create a new [`LoginSession`] and supply that
+    /// code to the `steam_guard_code` property when calling `start_with_credentials`.
+    /// - [`EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceConfirmation`]: You need to 
+    /// approve the confirmation prompt in your Steam mobile app.
+    /// - [`EAuthSessionGuardType::k_EAuthSessionGuardType_EmailConfirmation`]: You need to approve 
+    /// the confirmation email sent to you.
+    pub async fn start_with_credentials(
         &mut self,
         details: StartLoginSessionWithCredentialsDetails,
     ) -> Result<StartSessionResponse, LoginSessionError> {        
@@ -174,16 +208,40 @@ impl LoginSession {
     }
     
     /// Gets the account name.
-    pub fn get_account_name(&self) -> &Option<String> {
-        &self.account_name
+    pub fn get_account_name(&self) -> Option<&String> {
+        self.account_name.as_ref()
     }
     
-    /// Gets the access token.
-    pub fn get_access_token(&self) -> &Option<String> {
-        &self.access_token
+    /// A `string` containing your access token. As of 2023-09-12, Steam does not return an access 
+    /// token in response to successful authentication. This will be set after you call 
+    /// `refresh_access_token` or `renew_refresh_token`. Also, since `get_web_cookies` calls 
+    /// `refresh_access_token` internally for 
+    /// [`EAuthTokenPlatformType::k_EAuthTokenPlatformType_SteamClient`] or 
+    /// [`EAuthTokenPlatformType::k_EAuthTokenPlatformType_MobileApp`], this will also be set after 
+    /// calling [`get_web_cookies`] for those platform types.
+    pub fn get_access_token(&self) -> Option<&String> {
+        self.access_token.as_ref()
     }
     
-    /// Sets the access token.
+    /// Sets the access token. Will return an error if:
+    /// 
+    /// - You set it to a token that isn't well-formed, or
+    /// - You set it to a refresh token rather than an access token, or
+    /// - You have already called `start_with_credentials` and you set it to a token that doesn't 
+    /// belong to the same account, or
+    /// - You have already set a refresh token and you set this to a token that doesn't belong to 
+    /// the same account as the refresh token
+    /// 
+    /// Access tokens can't be used for much. You can use them with a few undocumented WebAPIs like 
+    /// [IFriendsListService/GetFriendsList](https://steamapi.xpaw.me/#IFriendsListService/GetFriendsList) 
+    /// by passing the access token as an access_token query string parameter. For example:
+    /// 
+    /// https://api.steampowered.com/IFriendsListService/GetFriendsList/v1/?access_token=eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyJpc3MiOiJ...
+    /// 
+    /// As of time of writing (2023-04-24), it appears that you can also use access tokens with regular published API methods,
+    /// for example:
+    /// 
+    /// https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=440&access_token=eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyJpc3MiOiJ...
     fn set_access_token(&mut self, token: String) -> Result<(), LoginSessionError> {
         if token.is_empty() {
             self.access_token = None;
@@ -217,13 +275,21 @@ impl LoginSession {
         Ok(())
     }
     
-    /// Gets the refresh token.
-    pub fn get_refresh_token(&self) -> &Option<String> {
-        &self.access_token
+    /// Gets the refresh token. This is populated after authenticatation. You can also assign a 
+    /// refresh token calling `set_refresh_token` if you already have one.
+    pub fn get_refresh_token(&self) -> Option<&String> {
+        self.access_token.as_ref()
     }
     
-    /// Sets the refresh token.
-    fn set_refresh_token(&mut self, token: String) -> Result<(), LoginSessionError> {
+    /// Sets the refresh token. Will return an error if:
+    ///
+    /// - You set it to a token that isn't well-formed, or
+    /// - You set it to an access token rather than a refresh token, or
+    /// - You have already called `start_with_credentials` and you set it to a token that doesn't 
+    /// belong to the same account, or
+    /// - You have already set an `access_token` and you set this to a token that doesn't belong 
+    /// to the same account as the access token
+    pub fn set_refresh_token(&mut self, token: String) -> Result<(), LoginSessionError> {
         if token.is_empty() {
             self.refresh_token = None;
             return Ok(());
@@ -276,11 +342,11 @@ impl LoginSession {
                 .ok_or(LoginSessionError::LoginSessionHasNotStarted)?;
             
             // cloning required to avoid borrowing over mutable borrow
-            start_session_response.get_allowed_confirmations().clone().to_vec()
+            start_session_response.get_allowed_confirmations().to_vec()
         };
         
-        for allow_confirmation in allowed_confirmations {
-            let confirmation_type = allow_confirmation.get_confirmation_type();
+        for confirmation in allowed_confirmations {
+            let confirmation_type = confirmation.get_confirmation_type();
             
             match confirmation_type {
                 EAuthSessionGuardType::k_EAuthSessionGuardType_None => {
@@ -307,9 +373,15 @@ impl LoginSession {
                         });
                     } else {
                         // We need a code from the user
+                        let detail = if confirmation.get_associated_message().is_empty() {
+                            Some(confirmation.get_associated_message().to_string())
+                        } else {
+                            None
+                        };
+
                         valid_actions.push(StartSessionResponseValidAction {
                             r#type: confirmation_type,
-                            detail: Some(allow_confirmation.get_associated_message().into()),
+                            detail,
                         });
                     }
                 },
@@ -338,6 +410,7 @@ impl LoginSession {
         })
     }
     
+    /// Attempts steam guard code.
     pub async fn attempt_steam_guard_code(&mut self) -> Result<bool, LoginSessionError> {
         if let Some(steam_guard_code) = &self.steam_guard_code {
             match self.submit_steam_guard_code(steam_guard_code.clone()).await {
@@ -356,6 +429,7 @@ impl LoginSession {
         Ok(false)
     }
     
+    /// Attempts email code authentication.
     async fn attempt_email_code_auth(&mut self) -> Result<bool, LoginSessionError> {
         if self.attempt_steam_guard_code().await? {
             return Ok(true);
@@ -371,26 +445,22 @@ impl LoginSession {
             self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser &&
             has_machine_token_confirmation
         } {
-            // let result = await this._handler.checkMachineAuthOrSendCodeEmail({
-            // 	machineAuthToken: this.steamGuardMachineToken,
-            // 	...(this._startSessionResponse as StartAuthSessionWithCredentialsResponse)
-            // });
+            let response = self.handler.check_machine_auth_or_send_code_email(
+                start_session_response.get_client_id(),
+                start_session_response.get_steamid().into(),
+                self.steam_guard_machine_token.as_ref().map(|token| token.as_slice()),
+            ).await?;
             
-            // this.emit('debug', `machine auth check response: ${EResult[result.result]}`);
-            
-            // if (result.result == EResult.OK) {
-            // 	// Machine auth succeeded
-            // 	setImmediate(() => this._doPoll());
-            // 	return true;
-            // }
-            
-            // todo finish this method
-            todo!()
+            if response.result == EResult::OK {
+                self.do_poll().await?;
+                return Ok(true);
+            }
         }
         
         Ok(false)
     }
     
+    /// Attemps TOTP code authentication.
     async fn attempt_totp_code_auth(&mut self) -> Result<bool, LoginSessionError> {
         self.attempt_steam_guard_code().await
     }
@@ -411,13 +481,13 @@ impl LoginSession {
             .ok_or(LoginSessionError::LoginSessionHasNotStarted)?;
         let needs_email_code = start_session_response.get_allowed_confirmations()
             .iter()
-            .any(|allow_confirmation| {
-                allow_confirmation.get_confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode
+            .any(|confirmation| {
+                confirmation.get_confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode
             });
         let needs_totp_code = start_session_response.allowed_confirmations
             .iter()
-            .any(|allow_confirmation| {
-                allow_confirmation.get_confirmation_type()== EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode
+            .any(|confirmation| {
+                confirmation.get_confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode
             });
         
         if !needs_email_code && !needs_totp_code {
@@ -438,6 +508,8 @@ impl LoginSession {
             auth_code,
             code_type
         ).await?;
+        // should authenticate
+        self.do_poll().await?;
         
         Ok(())
     }
@@ -670,6 +742,10 @@ impl LoginSession {
             request_id.into(),
         ).await {
             Ok(response) => {
+                if response.get_had_remote_interaction() {
+                    
+                }
+
                 if !response.get_refresh_token().is_empty() {
                     let client_id = response.get_new_client_id();
                     
@@ -683,15 +759,14 @@ impl LoginSession {
                     
                     // On 2023-09-12, Steam stopped issuing access tokens alongside refresh tokens 
                     // for newly authenticated sessions. This won't affect any consumer apps that 
-                    // use `getWebCookies()`, since that will acquire an access token if needed.
+                    // use `get_web_cookies`, since that will acquire an access token if needed.
                     // On 2023-09-22, I noticed that Steam started issuing access tokens again.
                     
                     // Consumers using SteamClient or WebBrowser never had a reason to consume the 
                     // accessToken property directly, since that was only useful as a cookie and 
-                    // `getWebCookies()` should be used instead. However, the access token is also 
+                    // `get_web_cookies` should be used instead. However, the access token is also 
                     // used as a WebAPI key for MobileApp, so we should probably ensure that we 
                     // have one for that platform.
-                    
                     if self.refresh_token.is_none() && self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_MobileApp {
                         self.refresh_access_token().await?;
                     }

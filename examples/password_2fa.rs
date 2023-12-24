@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         user_agent: None,
         machine_id: None,
     }).await?;
-    let response = session.start_session_with_credentials(details).await?;
+    let response = session.start_with_credentials(details).await?;
     
     if response.is_2fa() {
         let steam_guard_code = generate_auth_code(shared_secret.clone(), None)?;
