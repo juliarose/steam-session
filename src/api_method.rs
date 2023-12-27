@@ -1,13 +1,27 @@
-use protobuf::{Message, ProtobufResult};
-use steam_session_proto::{steammessages_clientserver_login::CMsgClientHello, custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData, steammessages_auth_steamclient::{CAuthentication_BeginAuthSessionViaCredentials_Response, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request, CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response, CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request, CAuthentication_GetAuthSessionInfo_Request, CAuthentication_GetAuthSessionInfo_Response, CAuthentication_GetPasswordRSAPublicKey_Request, CAuthentication_GetPasswordRSAPublicKey_Response, CAuthentication_PollAuthSessionStatus_Request, CAuthentication_PollAuthSessionStatus_Response}};
-use std::fmt::Debug;
-use std::io::Read;
+
+use crate::proto::steammessages_clientserver_login::CMsgClientHello;
+use crate::proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
+use crate::proto::steammessages_auth_steamclient::{
+    CAuthentication_BeginAuthSessionViaCredentials_Response,
+    CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request,
+    CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response,
+    CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response,
+    CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request,
+    CAuthentication_GetAuthSessionInfo_Request,
+    CAuthentication_GetAuthSessionInfo_Response,
+    CAuthentication_GetPasswordRSAPublicKey_Request,
+    CAuthentication_GetPasswordRSAPublicKey_Response,
+    CAuthentication_PollAuthSessionStatus_Request,
+    CAuthentication_PollAuthSessionStatus_Response,
+};
 use crate::proto::steammessages_auth_steamclient::{
     CAuthentication_AccessToken_GenerateForApp_Request,
     CAuthentication_AccessToken_GenerateForApp_Response,
 };
+use std::io::Read;
+use protobuf::{Message, ProtobufResult};
 
-pub trait ApiRequest: Debug + Message {
+pub trait ApiRequest: Sized + Message {
     const INTERFACE: &'static str;
     const METHOD: &'static str;
     const VERSION: u32;
@@ -15,7 +29,7 @@ pub trait ApiRequest: Debug + Message {
     type Response: ApiResponse;
 }
 
-pub trait ApiResponse: Debug + Sized {
+pub trait ApiResponse: Sized {
     fn parse_from_reader(reader: &mut dyn Read) -> ProtobufResult<Self>;
 }
 

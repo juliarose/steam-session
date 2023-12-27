@@ -11,11 +11,10 @@ use crate::enums::EMsg;
 use crate::proto::steammessages_base::CMsgProtoBufHeader;
 use crate::api_method::ApiRequest;
 use crate::transports::cm_list_cache::CmListCache;
-use crate::transports::ApiResponseBody;
+use crate::transports::{ApiResponseBody, Transport};
 use std::io::Cursor;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
-use chrono::Duration;
 use protobuf::Message as ProtoMessage;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
@@ -28,6 +27,7 @@ use tokio_tungstenite::{tungstenite, connect_async};
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream};
 use tokio_tungstenite::tungstenite::http::uri::Uri;
 use tokio_tungstenite::tungstenite::http::request::Request;
+use async_trait::async_trait;
 
 pub const PROTOCOL_VERSION: u32 = 65580;
 pub const PROTO_MASK: u32 = 0x80000000;
@@ -61,6 +61,38 @@ pub struct WebSocketCMTransport {
     client_sessionid: Arc<AtomicI32>,
 }
 
+#[async_trait]
+impl Transport for WebSocketCMTransport {
+    async fn send_request<Msg>(
+        &self,
+        msg: Msg,
+    ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, Error>>>, Error> 
+    where
+        Msg: ApiRequest,
+        <Msg as ApiRequest>::Response: Send,
+    {
+        if let Some(jobid) = self.send_message(
+            EMsg::ServiceMethodCallFromClientNonAuthed,
+            msg,
+            Some(Msg::NAME),
+        ).await? {
+            let filter_rx = self.filter.on_job_id(jobid);
+            let (
+                tx,
+                rx,
+            ) = oneshot::channel::<Result<Msg::Response, Error>>();
+            
+            tokio::spawn(async move {
+                tx.send(wait_for_response::<Msg>(filter_rx).await).ok();
+            });
+            
+            Ok(Some(rx))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 impl WebSocketCMTransport {
     pub async fn connect() -> Result<WebSocketCMTransport, Error> {
         let cm_list = Arc::new(tokio::sync::Mutex::new(CmListCache::new()));
@@ -92,35 +124,6 @@ impl WebSocketCMTransport {
             websocket_write: tokio::sync::Mutex::new(websocket_write),
             filter: Arc::new(filter),
             client_sessionid,
-        }
-    }
-    
-    pub async fn send_request<'a, Msg>(
-        &self,
-        msg: Msg,
-    ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, Error>>>, Error> 
-    where
-        Msg: ApiRequest,
-        <Msg as ApiRequest>::Response: Send,
-    {
-        if let Some(jobid) = self.send_message(
-            EMsg::ServiceMethodCallFromClientNonAuthed,
-            msg,
-            Some(Msg::NAME),
-        ).await? {
-            let filter_rx = self.filter.on_job_id(jobid);
-            let (
-                tx,
-                rx,
-            ) = oneshot::channel::<Result<Msg::Response, Error>>();
-            
-            tokio::spawn(async move {
-                tx.send(wait_for_response::<Msg>(filter_rx).await).ok();
-            });
-            
-            Ok(Some(rx))
-        } else {
-            Ok(None)
         }
     }
     

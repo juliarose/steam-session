@@ -16,9 +16,11 @@ use crate::request::{
     StartAuthSessionWithCredentialsRequest,
 };
 use crate::serializers::from_number_or_string_option;
+use crate::transports::{Transport, WebSocketCMTransport};
 use crate::types::DateTime;
 use crate::authentication_client::AuthenticationClient;
 use crate::helpers::{decode_jwt, generate_sessionid, create_api_headers};
+use crate::enums::{ESessionPersistence, EAuthTokenPlatformType, EAuthSessionGuardType};
 
 use std::collections::HashMap;
 use cookie::Cookie;
@@ -29,19 +31,14 @@ use serde::Deserialize;
 use serde_json::Value;
 use chrono::{Utc, Duration};
 use reqwest::{Client, RequestBuilder};
-use steam_session_proto::enums::ESessionPersistence;
-use steam_session_proto::steammessages_auth_steamclient::{
-    EAuthTokenPlatformType,
-    EAuthSessionGuardType,
-    CAuthentication_BeginAuthSessionViaCredentials_Response,
-};
+use steam_session_proto::steammessages_auth_steamclient::CAuthentication_BeginAuthSessionViaCredentials_Response;
 use steamid_ng::SteamID;
 use url::form_urlencoded;
 
 const LOGIN_TIMEOUT_SECONDS: i64 = 30;
 
 #[derive(Debug)]
-pub struct LoginSession {
+pub struct LoginSession<T> {
     pub login_timeout: Duration,
     account_name: Option<String>,
     refresh_token: Option<String>,
@@ -49,7 +46,7 @@ pub struct LoginSession {
     access_token_set_at: Option<DateTime>,
     platform_type: EAuthTokenPlatformType,
     client: Client,
-    handler: AuthenticationClient,
+    handler: AuthenticationClient<T>,
     steam_guard_code: Option<String>,
     steam_guard_machine_token: Option<Vec<u8>>,
     start_session_response: Option<CAuthentication_BeginAuthSessionViaCredentials_Response>,
@@ -58,14 +55,30 @@ pub struct LoginSession {
     polling_canceled: bool,
 }
 
-impl LoginSession {
+pub async fn connect_ws() -> Result<LoginSession<WebSocketCMTransport>, LoginSessionError> {
+    let platform_type = EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser;
+    let transport = WebSocketCMTransport::connect().await?;
+    
+    LoginSessionBuilder::new(platform_type, transport)
+        .connect()
+        .await
+}
+
+impl<T> LoginSession<T>
+where
+    T: Transport,
+{
     /// Creates a new [`LoginSessionBuilder`].
-    pub fn builder(platform_type: EAuthTokenPlatformType) -> LoginSessionBuilder {
-        LoginSessionBuilder::new(platform_type)
+    pub fn builder(
+        transport: T,
+        platform_type: EAuthTokenPlatformType,
+    ) -> LoginSessionBuilder<T> {
+        LoginSessionBuilder::new(platform_type, transport)
     }
     
     /// Creates a connection for authentication.
     pub async fn connect(
+        transport: T,
         options: LoginSessionOptions,
     ) -> Result<Self, LoginSessionError> {
         // probably reqwest client
@@ -80,6 +93,7 @@ impl LoginSession {
         let platform_type = options.platform_type;
         let client = Client::new();
         let handler = helpers::create_handler(
+            transport,
             client.clone(),
             platform_type,
             options.machine_id,
@@ -119,24 +133,6 @@ impl LoginSession {
     /// 
     /// On success returns a [`StartSessionResponse`]. Check `allowed_confirmations` for how to 
     /// respond to the response.
-    /// 
-    /// Here's a list of which guard types might be present in this method's response, and how you 
-    /// should proceed:
-    ///
-    /// - [`EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode`]: An email was sent to you 
-    /// containing a code (`detail` contains your email address' domain, e.g. `gmail.com`). You 
-    /// should get that code and either call {@link submitSteamGuardCode}, or create a new 
-    /// [`LoginSession`] and supply that code to the `steam_guard_code` property when calling
-    /// `start_with_credentials`.
-    /// - [`EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode`]: You need to supply a TOTP 
-    /// code from your mobile authenticator (or by using 
-    /// [another-steam-totp](https://crates.io/crates/another-steam-totp)). Get that code and 
-    /// either call `submit_steam_guard_code`, or create a new [`LoginSession`] and supply that
-    /// code to the `steam_guard_code` property when calling `start_with_credentials`.
-    /// - [`EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceConfirmation`]: You need to 
-    /// approve the confirmation prompt in your Steam mobile app.
-    /// - [`EAuthSessionGuardType::k_EAuthSessionGuardType_EmailConfirmation`]: You need to approve 
-    /// the confirmation email sent to you.
     pub async fn start_with_credentials(
         &mut self,
         details: StartLoginSessionWithCredentialsDetails,
@@ -334,11 +330,9 @@ impl LoginSession {
             
             match confirmation_type {
                 EAuthSessionGuardType::k_EAuthSessionGuardType_None => {
-                    return Ok(StartSessionResponse {
-                        action_required: false,
-                        valid_actions: Vec::new(),
-                        qr_challenge_url: None,
-                    });
+                    self.do_poll().await?;
+                    
+                    return Ok(StartSessionResponse::Authenticated);
                 },
                 EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode |
                 EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode => {
@@ -350,48 +344,42 @@ impl LoginSession {
                     
                     if is_authed {
                         // We successfully authed already, no action needed
-                        return Ok(StartSessionResponse {
-                            action_required: false,
-                            valid_actions: Vec::new(),
-                            qr_challenge_url: None,
-                        });
-                    } else {
-                        // We need a code from the user
-                        let detail = if confirmation.get_associated_message().is_empty() {
-                            Some(confirmation.get_associated_message().to_string())
-                        } else {
-                            None
-                        };
-
-                        valid_actions.push(StartSessionResponseValidAction {
-                            r#type: confirmation_type,
-                            detail,
-                        });
+                        return Ok(StartSessionResponse::Authenticated);
                     }
+                    
+                    // We need a code from the user
+                    let detail = if confirmation.get_associated_message().is_empty() {
+                        Some(confirmation.get_associated_message().to_string())
+                    } else {
+                        None
+                    };
+                    
+                    valid_actions.push(StartSessionResponseValidAction {
+                        r#type: confirmation_type,
+                        detail,
+                    });
                 },
                 EAuthSessionGuardType::k_EAuthSessionGuardType_EmailConfirmation |
                 EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceConfirmation => {
+                    // Probably not necessary
+                    self.do_poll().await?;
+                    
                     valid_actions.push(StartSessionResponseValidAction {
                         r#type: confirmation_type,
                         detail: None,
                     });
-                    // todo perform a poll
                 },
                 EAuthSessionGuardType::k_EAuthSessionGuardType_MachineToken => {
-                    // Do nothing here since this is handled by _attemptEmailCodeAuth
+                    // Do nothing here since this is handled by attempt_email_code_auth
                 },
                 r#type => {
                     // error unknown guard type
-                    return Err(LoginSessionError::UnknownGuardType(confirmation_type));
+                    return Err(LoginSessionError::UnknownGuardType(r#type));
                 },
             }
         }
         
-        Ok(StartSessionResponse {
-            action_required: true,
-            valid_actions,
-            qr_challenge_url: None,
-        })
+        Ok(StartSessionResponse::ActionRequired(valid_actions))
     }
     
     /// Attempts steam guard code.
@@ -636,9 +624,6 @@ impl LoginSession {
             })
             .collect::<FuturesOrdered<_>>();
         
-        // todo futures get hung up waiting for other futures to complete
-        // we want to stop when the first response containing cookies completes, which is not what 
-        // happens here
         while let Some(transfer) = transfers.next().await {
             if let Some(mut cookies) = transfer {
                 if !cookies.iter().any(|cookie| cookie.contains("sessionid=")) {

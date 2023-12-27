@@ -11,6 +11,19 @@ use crate::api_method::{ApiRequest, ApiResponse};
 use bytes::BytesMut;
 pub use websocket::WebSocketCMTransport;
 use bytes::Buf;
+use async_trait::async_trait;
+use tokio::sync::oneshot;
+
+#[async_trait]
+pub trait Transport: Sync + Send {
+    async fn send_request<Msg>(
+        &self,
+        msg: Msg,
+    ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, Error>>>, Error> 
+    where
+        Msg: ApiRequest,
+        <Msg as ApiRequest>::Response: Send;
+}
 
 #[derive(Debug, Clone)]
 pub struct ApiResponseBody {

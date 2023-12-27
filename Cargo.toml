@@ -38,6 +38,7 @@ rsa = "0.9.6"
 cookie = "0.18.0"
 futures = "0.3.0"
 data-encoding = "2.5.0"
+async-trait = "0.1.75"
 
 # maybe not needed
 async-fs = "1.5.0"
@@ -47,3 +48,4 @@ tokio = { version = "1", features = ["full"] }
 dotenv = "0.15.0"
 another-steam-totp = "0.2.0"
 simple-logging = "2.0.2"
+steam-vent = { git = "https://github.com/juliarose/steam-vent" }

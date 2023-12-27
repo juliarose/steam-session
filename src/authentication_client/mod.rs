@@ -7,6 +7,7 @@ use steamid_ng::SteamID;
 use crate::enums::EOSType;
 use crate::helpers::{decode_jwt, get_machine_id, encode_base64, get_spoofed_hostname, create_api_headers, DecodeError};
 use crate::api_method::ApiRequest;
+use crate::transports::Transport;
 use crate::transports::websocket::WebSocketCMTransport;
 use crate::interfaces::{
     AuthenticationClientConstructorOptions,
@@ -44,17 +45,22 @@ use rsa::{RsaPublicKey, Pkcs1v15Encrypt, BigUint};
 
 /// A client for handling authentication requests.
 #[derive(Debug)]
-pub struct AuthenticationClient {
-    transport: WebSocketCMTransport,
+pub struct AuthenticationClient<T> {
+    transport: T,
     platform_type: EAuthTokenPlatformType,
     client: Client,
     user_agent: &'static str,
     machine_id: Option<Vec<u8>>,
 }
 
-impl AuthenticationClient {
+impl<T> AuthenticationClient<T>
+where
+    T: Transport,
+{
     /// Creates a new [`AuthenticationClient`]. 
-    pub fn new(options: AuthenticationClientConstructorOptions) -> Self {
+    pub fn new(
+        options: AuthenticationClientConstructorOptions<T>,
+    ) -> Self {
         Self {
             transport: options.transport,
             platform_type: options.platform_type,

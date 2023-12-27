@@ -1,22 +1,25 @@
-use crate::{authentication_client::AuthenticationClient, interfaces::AuthenticationClientConstructorOptions, helpers::USER_AGENT};
+use crate::{authentication_client::AuthenticationClient, interfaces::AuthenticationClientConstructorOptions, helpers::USER_AGENT, transports::Transport};
 use reqwest::Client;
 use steamid_ng::SteamID;
 
 type Buffer = Vec<u8>;
 
 #[derive(Debug)]
-pub struct LoginApprover {
+pub struct LoginApprover<T> {
     access_token: String,
     pub shared_secret: String,
     client: Client,
-    handler: AuthenticationClient,
+    handler: AuthenticationClient<T>,
 }
 
-impl LoginApprover {
+impl<T> LoginApprover<T>
+where
+    T: Transport,
+{
     pub fn new(
         access_token: String,
         shared_secret: String,
-        options: AuthenticationClientConstructorOptions,
+        options: AuthenticationClientConstructorOptions<T>,
     ) -> Self {
         let client = Client::new();
 

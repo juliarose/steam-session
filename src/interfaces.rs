@@ -1,12 +1,10 @@
-use crate::enums::{EResult, AuthSessionSecurityHistory, EOSType};
-use crate::transports::WebSocketCMTransport;
+use crate::enums::{EResult, EOSType, ESessionPersistence};
 use crate::serializers::from_number_or_string;
 use std::net::IpAddr;
 use serde::Deserialize;
-use steam_session_proto::enums::ESessionPersistence;
 use steam_session_proto::steammessages_auth_steamclient::{
     CAuthentication_DeviceDetails,
-    EAuthTokenPlatformType,
+    EAuthTokenPlatformType, EAuthSessionSecurityHistory,
 };
 use url::Url;
 use reqwest::Client;
@@ -73,9 +71,9 @@ pub struct PlatformData {
 }
 
 #[derive(Debug)]
-pub struct AuthenticationClientConstructorOptions {
+pub struct AuthenticationClientConstructorOptions<T> {
     pub platform_type: EAuthTokenPlatformType,
-    pub transport: WebSocketCMTransport,
+    pub transport: T,
     pub client: Client,
     pub user_agent: &'static str,
     pub machine_id: Option<Vec<u8>>,
@@ -109,7 +107,7 @@ pub struct GetAuthSessionInfoResponse {
     pub platform_type: EAuthTokenPlatformType,
     pub device_friendly_name: String,
     pub version: u32,
-    pub login_history: AuthSessionSecurityHistory,
+    pub login_history: EAuthSessionSecurityHistory,
     pub location_mismatch: bool,
     pub high_usage_login: bool,
     pub requested_persistence: ESessionPersistence,
