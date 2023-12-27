@@ -20,7 +20,7 @@ use crate::proto::steammessages_auth_steamclient::{
 };
 use std::io::Read;
 
-pub trait ApiRequest: Sized + protobuf::Message {
+pub trait ApiRequest: Sized + protobuf::Message + protobuf::MessageFull {
     const INTERFACE: &'static str;
     const METHOD: &'static str;
     const VERSION: u32;

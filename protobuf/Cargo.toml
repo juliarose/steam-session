@@ -8,3 +8,7 @@ license = "MIT"
 
 [dependencies]
 protobuf = "3.3.0"
+
+[build-dependencies]
+protobuf = "3.3.0"
+protobuf-codegen = "3.3.0"
