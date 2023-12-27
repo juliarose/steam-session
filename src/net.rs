@@ -19,9 +19,8 @@ use crate::proto::steammessages_auth_steamclient::{
     CAuthentication_AccessToken_GenerateForApp_Response,
 };
 use std::io::Read;
-use protobuf::{Message, ProtobufResult};
 
-pub trait ApiRequest: Sized + Message {
+pub trait ApiRequest: Sized + protobuf::Message {
     const INTERFACE: &'static str;
     const METHOD: &'static str;
     const VERSION: u32;
@@ -30,11 +29,11 @@ pub trait ApiRequest: Sized + Message {
 }
 
 pub trait ApiResponse: Sized {
-    fn parse_from_reader(reader: &mut dyn Read) -> ProtobufResult<Self>;
+    fn parse_from_reader(reader: &mut dyn Read) -> protobuf::Result<Self>;
 }
 
 impl ApiResponse for () {
-    fn parse_from_reader(_reader: &mut dyn Read) -> ProtobufResult<Self> {
+    fn parse_from_reader(_reader: &mut dyn Read) -> protobuf::Result<Self> {
         Ok(())
     }
 }
@@ -50,8 +49,8 @@ macro_rules! api_method {
         }
         
         impl ApiResponse for $res {
-            fn parse_from_reader(reader: &mut dyn Read) -> ProtobufResult<Self> {
-                <Self as Message>::parse_from_reader(reader)
+            fn parse_from_reader(reader: &mut dyn Read) -> protobuf::Result<Self> {
+                <Self as protobuf::Message>::parse_from_reader(reader)
             }
         }
     };

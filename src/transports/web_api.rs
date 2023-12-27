@@ -1,7 +1,7 @@
 use reqwest::Client;
-use crate::api_method::ApiRequest;
+use crate::net::ApiRequest;
 
-const HOSTNAME: &str = "https://api.steampowered.com";
+const HOSTNAME: &str = "api.steampowered.com";
 
 pub struct WebApiTransport {
     client: Client,
@@ -13,16 +13,28 @@ impl WebApiTransport {
             client: Client::new(),
         }
     }
-
+    
     fn get_url(pathname: &str) -> String {
-        format!("{HOSTNAME}/{pathname}")
+        format!("https://{HOSTNAME}/{pathname}")
     }
 
-    async fn send<Msg>(&self, request: Msg)
+    async fn send<Msg>(&self, msg: Msg)
     where
         Msg: ApiRequest,
     {
-        let url = Self::get_url(&Msg::NAME);
+        let pathname = format!(
+            "I{}Service/{}/v{}",
+            Msg::INTERFACE,
+            Msg::METHOD,
+            Msg::VERSION,
+        );
+        let url = Self::get_url(&pathname);
+        let request = if is_get_request(&pathname) {
+            self.client.get(&url)
+        } else {
+            self.client.post(&url)
+        };
+        
         
     }
 }

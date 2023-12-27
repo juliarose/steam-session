@@ -7,4 +7,4 @@ description = "Protobuf structs used for Steam sessions"
 license = "MIT"
 
 [dependencies]
-protobuf = "=2.24.1"
+protobuf = "3.3.0"

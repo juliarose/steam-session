@@ -6,7 +6,7 @@ pub mod cm_server;
 pub mod cm_list_cache;
 
 use crate::transports::websocket::Error;
-use crate::api_method::{ApiRequest, ApiResponse};
+use crate::net::{ApiRequest, ApiResponse};
 
 use bytes::BytesMut;
 pub use websocket::WebSocketCMTransport;
@@ -19,6 +19,7 @@ pub trait Transport: Sync + Send {
     async fn send_request<Msg>(
         &self,
         msg: Msg,
+        access_token: Option<String>,
     ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, Error>>>, Error> 
     where
         Msg: ApiRequest,

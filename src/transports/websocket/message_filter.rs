@@ -1,5 +1,6 @@
-use super::{Error, Message};
+use super::Error;
 use super::PROTO_MASK;
+use super::message::Message;
 use crate::enums::{EMsg, EResult};
 use crate::proto::steammessages_base::{CMsgProtoBufHeader, CMsgMulti};
 use crate::proto::steammessages_clientserver_login::CMsgClientLogonResponse;
@@ -17,6 +18,15 @@ use dashmap::DashMap;
 use protobuf::Message as ProtoMessage;
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::read::GzDecoder;
+
+#[derive(Debug)]
+struct MessageData {
+    eresult: EResult,
+    emsg: EMsg,
+    body: Vec<u8>,
+    jobid_target: u64,
+    client_sessionid: i32,
+}
 
 #[derive(Debug, Clone)]
 pub struct MessageFilter {
@@ -79,10 +89,10 @@ fn process_multi_message(
     body_buffer: &Vec<u8>,
 ) -> Result<(), Error> {
     let message = CMsgMulti::parse_from_bytes(body_buffer)?;
-    let payload = message.get_message_body();
+    let payload = message.message_body();
     log::debug!("Process multi {} bytes", payload.len());
     let mut s = Vec::new();
-    let payload = if message.get_size_unzipped() != 0 {
+    let payload = if message.size_unzipped() != 0 {
         GzDecoder::new(payload).read_to_end(&mut s)?;
         
         s.as_slice()
@@ -99,15 +109,6 @@ fn process_multi_message(
     }
     
     Ok(())
-}
-
-#[derive(Debug)]
-struct MessageData {
-    eresult: EResult,
-    emsg: EMsg,
-    body: Vec<u8>,
-    jobid_target: u64,
-    client_sessionid: i32,
 }
 
 fn parse_message(msg: Vec<u8>) -> Result<MessageData, Error> {
@@ -128,12 +129,12 @@ fn parse_message(msg: Vec<u8>) -> Result<MessageData, Error> {
     
     let raw_emsg = raw_emsg & !PROTO_MASK;
     let header = CMsgProtoBufHeader::parse_from_bytes(&header_buffer)?;
-    let client_sessionid = header.get_client_sessionid();
+    let client_sessionid = header.client_sessionid();
     let emsg = EMsg::try_from(raw_emsg)
         .map_err(|_| Error::UnknownEMsg(raw_emsg))?;
-    let jobid_target = header.get_jobid_target();
-    let eresult =  EResult::try_from(header.get_eresult())
-        .map_err(|_| Error::UnknownEResult(header.get_eresult()))?;
+    let jobid_target = header.jobid_target();
+    let eresult =  EResult::try_from(header.eresult())
+        .map_err(|_| Error::UnknownEResult(header.eresult()))?;
     
     Ok(MessageData {
         eresult,
@@ -194,8 +195,8 @@ fn handle_ws_message(filter: &MessageFilter, msg: Vec<u8>) -> Result<(), Error> 
             // The only time we expect to receive ClientLogOnResponse is when the CM is telling us to try another CM
             EMsg::ClientLogOnResponse => {
                 let logon_response = CMsgClientLogonResponse::parse_from_bytes(&body)?;
-                let eresult =  EResult::try_from(logon_response.get_eresult())
-                    .map_err(|_| Error::UnknownEResult(logon_response.get_eresult()))?;
+                let eresult =  EResult::try_from(logon_response.eresult())
+                    .map_err(|_| Error::UnknownEResult(logon_response.eresult()))?;
                 
                 log::debug!("Received ClientLogOnResponse with result: {eresult:?}");
                 // websocket connection should be closed

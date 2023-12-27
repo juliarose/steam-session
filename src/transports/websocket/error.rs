@@ -1,6 +1,5 @@
 use crate::transports::cm_list_cache;
 use crate::enums::EResult;
-use protobuf::ProtobufError;
 use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::tungstenite::http::uri::InvalidUri;
 
@@ -12,36 +11,36 @@ pub enum Error {
     CmServer(#[from] cm_list_cache::Error),
     #[error("IO: {}", .0)]
     OI(#[from] std::io::Error),
-    #[error("HTTP error with websocket: {}", .0)]
-    Http(#[from] tokio_tungstenite::tungstenite::http::Error),
     #[error("Invalid URI with websocket: {}", .0)]
     Url(#[from] InvalidUri),
+    #[error("Parsed URL does not contain hostname")]
+    UrlNoHostName,
+    #[error("HTTP error with websocket: {}", .0)]
+    Http(#[from] tokio_tungstenite::tungstenite::http::Error),
     #[error("Connection error with websocket: {}", .0)]
     Connection(#[from] tungstenite::Error),
+    #[error("No response")]
+    NoResponse,
+    #[error("Response error: {}", .0)]
+    ResponseError(String),
+    #[error("Response returned empty body")]
+    NoBodyInResponse,
+    #[error("Received ClientLogOnResponse with result: {:?} (try another CM)", .0)]
+    ClientLogOnResponseTryAnotherCM(EResult),
     #[error("Received unexpected non-protobuf message: {}", .0)]
     UnexpectedNonProtobufMessage(u32),
     #[error("Error with protobuf message: {}", .0)]
-    Proto(#[from] ProtobufError),
+    Proto(#[from] protobuf::Error),
+    #[error("Wrong service method: expected {}; got {}", .0, .1)]
+    DifferentServiceMethod(&'static str, String),
+    #[error("Response timed out")]
+    Timeout,
+    #[error("Receiver error: {}", .0)]
+    RecvError(#[from] tokio::sync::oneshot::error::RecvError),
     #[error("Unknown EMsg: {}", .0)]
     UnknownEMsg(u32),
     #[error("Unknown EResult: {}", .0)]
     UnknownEResult(i32),
-    #[error("No response")]
-    NoResponse,
-    #[error("Response timed out")]
-    Timeout,
-    #[error("Wrong service method: expected {}; got {}", .0, .1)]
-    DifferentServiceMethod(&'static str, String),
-    #[error("Receiver error: {}", .0)]
-    RecvError(#[from] tokio::sync::oneshot::error::RecvError),
-    #[error("Response returned empty body")]
-    NoBodyInResponse,
-    #[error("Response error: {}", .0)]
-    ResponseError(String),
-    #[error("Received ClientLogOnResponse with result: {:?} (try another CM)", .0)]
-    ClientLogOnResponseTryAnotherCM(EResult),
     #[error("Received EResult other than OK: {:?}", .0)]
     EResultNotOK(EResult),
-    #[error("Parsed URL does not contain hostname")]
-    UrlNoHostName,
 }

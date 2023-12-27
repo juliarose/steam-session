@@ -50,7 +50,6 @@ pub struct LoginSession<T> {
     steam_guard_code: Option<String>,
     steam_guard_machine_token: Option<Vec<u8>>,
     start_session_response: Option<CAuthentication_BeginAuthSessionViaCredentials_Response>,
-    had_remote_interaction: bool,
     polling_started_time: Option<DateTime>,
     polling_canceled: bool,
 }
@@ -59,7 +58,7 @@ pub async fn connect_ws() -> Result<LoginSession<WebSocketCMTransport>, LoginSes
     let platform_type = EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser;
     let transport = WebSocketCMTransport::connect().await?;
     
-    LoginSessionBuilder::new(platform_type, transport)
+    LoginSessionBuilder::new(transport, platform_type)
         .connect()
         .await
 }
@@ -73,7 +72,7 @@ where
         transport: T,
         platform_type: EAuthTokenPlatformType,
     ) -> LoginSessionBuilder<T> {
-        LoginSessionBuilder::new(platform_type, transport)
+        LoginSessionBuilder::new(transport, platform_type)
     }
     
     /// Creates a connection for authentication.
@@ -81,15 +80,6 @@ where
         transport: T,
         options: LoginSessionOptions,
     ) -> Result<Self, LoginSessionError> {
-        // probably reqwest client
-        // let agent:HTTPS.Agent = options.agent || new HTTPS.Agent({keepAlive: true});
-        
-        // if (options.httpProxy) {
-        // 	agent = StdLib.HTTP.getProxyAgent(true, options.httpProxy) as HTTPS.Agent;
-        // } else if (options.socksProxy) {
-        // 	agent = new SocksProxyAgent(options.socksProxy);
-        // }
-        
         let platform_type = options.platform_type;
         let client = Client::new();
         let handler = helpers::create_handler(
@@ -112,7 +102,6 @@ where
             steam_guard_code: None,
             steam_guard_machine_token: None,
             start_session_response: None,
-            had_remote_interaction: false,
             polling_started_time: None,
             polling_canceled: false,
         })
@@ -172,7 +161,7 @@ where
     
     pub fn steamid(&self) -> Option<SteamID> {
         if let Some(start_session_response) = &self.start_session_response {
-            return Some(SteamID::from(start_session_response.get_steamid()));
+            return Some(SteamID::from(start_session_response.steamid()));
         }
         
         let token = if let Some(access_token) = &self.access_token {
@@ -235,7 +224,7 @@ where
         }
         
         if let Some(start_session_response) = &self.start_session_response {
-            if start_session_response.get_steamid() != u64::from(decoded.steamid) {
+            if start_session_response.steamid() != u64::from(decoded.steamid) {
                 return Err(LoginSessionError::TokenIsForDifferentAccount);
             }
         }
@@ -293,7 +282,7 @@ where
         }
         
         if let Some(start_session_response) = &self.start_session_response {
-            if start_session_response.get_steamid() != u64::from(decoded.steamid) {
+            if start_session_response.steamid() != u64::from(decoded.steamid) {
                 return Err(LoginSessionError::TokenIsForDifferentAccount);
             }
         }
@@ -322,11 +311,11 @@ where
                 .ok_or(LoginSessionError::LoginSessionHasNotStarted)?;
             
             // cloning required to avoid borrowing over mutable borrow
-            start_session_response.get_allowed_confirmations().to_vec()
+            start_session_response.allowed_confirmations.clone()
         };
         
         for confirmation in allowed_confirmations {
-            let confirmation_type = confirmation.get_confirmation_type();
+            let confirmation_type = confirmation.confirmation_type();
             
             match confirmation_type {
                 EAuthSessionGuardType::k_EAuthSessionGuardType_None => {
@@ -348,8 +337,8 @@ where
                     }
                     
                     // We need a code from the user
-                    let detail = if confirmation.get_associated_message().is_empty() {
-                        Some(confirmation.get_associated_message().to_string())
+                    let detail = if confirmation.associated_message().is_empty() {
+                        Some(confirmation.associated_message().to_string())
                     } else {
                         None
                     };
@@ -409,17 +398,17 @@ where
         
         let start_session_response = self.start_session_response.as_ref()
             .ok_or(LoginSessionError::LoginSessionHasNotStarted)?;
-        let has_machine_token_confirmation = start_session_response.get_allowed_confirmations()
+        let has_machine_token_confirmation = start_session_response.allowed_confirmations
             .iter()
-            .any(|allowed_confirmation| allowed_confirmation.get_confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_MachineToken);
+            .any(|allowed_confirmation| allowed_confirmation.confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_MachineToken);
         
         if {
             self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser &&
             has_machine_token_confirmation
         } {
             let response = self.handler.check_machine_auth_or_send_code_email(
-                start_session_response.get_client_id(),
-                start_session_response.get_steamid().into(),
+                start_session_response.client_id(),
+                start_session_response.steamid().into(),
                 self.steam_guard_machine_token.as_ref().map(|token| token.as_slice()),
             ).await?;
             
@@ -451,15 +440,15 @@ where
         
         let start_session_response = self.start_session_response.as_ref()
             .ok_or(LoginSessionError::LoginSessionHasNotStarted)?;
-        let needs_email_code = start_session_response.get_allowed_confirmations()
+        let needs_email_code = start_session_response.allowed_confirmations
             .iter()
             .any(|confirmation| {
-                confirmation.get_confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode
+                confirmation.confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_EmailCode
             });
         let needs_totp_code = start_session_response.allowed_confirmations
             .iter()
             .any(|confirmation| {
-                confirmation.get_confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode
+                confirmation.confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode
             });
         
         if !needs_email_code && !needs_totp_code {
@@ -471,8 +460,8 @@ where
         } else {
             EAuthSessionGuardType::k_EAuthSessionGuardType_DeviceCode
         };
-        let client_id = start_session_response.get_client_id();
-        let steamid = start_session_response.get_steamid();
+        let client_id = start_session_response.client_id();
+        let steamid = start_session_response.steamid();
         
         self.handler.submit_steam_guard_code(
             client_id,
@@ -639,14 +628,14 @@ where
     
     /// Refreshes the access token. As long as a `refresh_token` is set, you can call this method 
     /// to obtain a new access token. 
-    async fn refresh_access_token(&mut self) -> Result<(), LoginSessionError> {
+    pub async fn refresh_access_token(&mut self) -> Result<(), LoginSessionError> {
         let refresh_token = self.refresh_token.as_ref()
             .ok_or_else(|| LoginSessionError::NoRefreshToken)?;
         let access_token = self.handler.generate_access_token_for_app(
             refresh_token.clone(),
             false,
         ).await?;
-        let access_token = access_token.get_access_token().to_string();
+        let access_token = access_token.access_token().to_string();
         
         self.set_access_token(access_token)?;
         
@@ -661,13 +650,13 @@ where
     /// accessed using the {@link refreshToken} property), or false if no new refresh token was 
     /// issued. Regardless of the return value, the {@link accessToken} property is always 
     /// updated with a fresh access token (unless there was an error).
-    async fn renew_refresh_token(&mut self) -> Result<bool, LoginSessionError> {
+    pub async fn renew_refresh_token(&mut self) -> Result<bool, LoginSessionError> {
         let refresh_token = self.refresh_token.as_ref()
             .ok_or_else(|| LoginSessionError::NoRefreshToken)?;
         let response = self.handler.generate_access_token_for_app(refresh_token.clone(), true)
             .await?;
-        let access_token = response.get_access_token();
-        let refresh_token = response.get_refresh_token();
+        let access_token = response.access_token();
+        let refresh_token = response.refresh_token();
         
         self.set_access_token(access_token.to_owned())?;
         self.set_refresh_token(refresh_token.to_owned())?;
@@ -699,9 +688,9 @@ where
         let (clientid, request_id, poll_interval) = {
             let start_session_response = self.start_session_response.as_ref()
                 .ok_or(LoginSessionError::LoginSessionHasNotStarted)?;
-            let clientid = start_session_response.get_client_id();
-            let request_id = start_session_response.get_request_id();
-            let poll_interval = start_session_response.get_interval();
+            let clientid = start_session_response.client_id();
+            let request_id = start_session_response.request_id();
+            let poll_interval = start_session_response.interval();
             
             (clientid, request_id, poll_interval)
         };
@@ -711,20 +700,20 @@ where
             request_id.into(),
         ).await {
             Ok(response) => {
-                if response.get_had_remote_interaction() {
+                if response.had_remote_interaction() {
                     
                 }
 
-                if !response.get_refresh_token().is_empty() {
-                    let client_id = response.get_new_client_id();
+                if !response.refresh_token().is_empty() {
+                    let client_id = response.new_client_id();
                     
                     if let Some(start_session_response) = self.start_session_response.as_mut() {
                         start_session_response.set_client_id(client_id);
                     }
                     
-                    self.access_token = Some(response.get_access_token().to_owned());
-                    self.set_access_token(response.get_access_token().to_owned())?;
-                    self.set_refresh_token(response.get_refresh_token().to_owned())?;
+                    self.access_token = Some(response.access_token().to_owned());
+                    self.set_access_token(response.access_token().to_owned())?;
+                    self.set_refresh_token(response.refresh_token().to_owned())?;
                     
                     // On 2023-09-12, Steam stopped issuing access tokens alongside refresh tokens 
                     // for newly authenticated sessions. This won't affect any consumer apps that 

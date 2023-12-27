@@ -5,7 +5,7 @@ use steam_vent::connection::Connection;
 use steam_session::transports::websocket::Error;
 use tokio::sync::{mpsc, oneshot};
 use steam_vent::proto::steammessages_clientserver_login::CMsgClientLogon;
-use steam_session::api_method::ApiRequest;
+use steam_session::net::ApiRequest;
 use async_trait::async_trait;
 
 pub struct Message {
@@ -21,6 +21,7 @@ impl Transport for ClientTransport {
     async fn send_request<Msg>(
         &self,
         msg: Msg,
+        _access_token: Option<String>,
     ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, Error>>>, Error> 
     where
         Msg: ApiRequest,

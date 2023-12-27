@@ -16,8 +16,8 @@ where
     T: Transport,
 {
     pub fn new(
-        platform_type: EAuthTokenPlatformType,
         transport: T,
+        platform_type: EAuthTokenPlatformType,
     ) -> Self {
         Self {
             platform_type,

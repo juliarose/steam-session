@@ -4,12 +4,11 @@ mod message;
 
 use message_filter::MessageFilter;
 pub use error::Error;
-pub use message::Message;
 use steam_session_proto::steammessages_clientserver_login::CMsgClientHello;
 
 use crate::enums::EMsg;
+use crate::net::ApiRequest;
 use crate::proto::steammessages_base::CMsgProtoBufHeader;
-use crate::api_method::ApiRequest;
 use crate::transports::cm_list_cache::CmListCache;
 use crate::transports::{ApiResponseBody, Transport};
 use std::io::Cursor;
@@ -48,7 +47,7 @@ where
             body.into_response::<Msg>()
         },
         Err(_error) => {
-            log::debug!("Timed out waiting for response from {}", Msg::NAME);
+            log::debug!("Timed out waiting for response from {}", <Msg as ApiRequest>::NAME);
             Err(Error::Timeout)
         },
     }
@@ -66,6 +65,7 @@ impl Transport for WebSocketCMTransport {
     async fn send_request<Msg>(
         &self,
         msg: Msg,
+        _access_token: Option<String>,
     ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, Error>>>, Error> 
     where
         Msg: ApiRequest,
@@ -74,7 +74,7 @@ impl Transport for WebSocketCMTransport {
         if let Some(jobid) = self.send_message(
             EMsg::ServiceMethodCallFromClientNonAuthed,
             msg,
-            Some(Msg::NAME),
+            Some(<Msg as ApiRequest>::NAME),
         ).await? {
             let filter_rx = self.filter.on_job_id(jobid);
             let (

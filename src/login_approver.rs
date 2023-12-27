@@ -22,20 +22,6 @@ where
         options: AuthenticationClientConstructorOptions<T>,
     ) -> Self {
         let client = Client::new();
-
-		// let agent:HTTPS.Agent = options.agent || new HTTPS.Agent({keepAlive: true});
-
-		// if (options.httpProxy) {
-		// 	agent = StdLib.HTTP.getProxyAgent(true, options.httpProxy) as HTTPS.Agent;
-		// } else if (options.socksProxy) {
-		// 	agent = new SocksProxyAgent(options.socksProxy);
-		// }
-
-		// this._webClient = new HttpClient({
-		// 	httpsAgent: agent,
-		// 	localAddress: options.localAddress
-		// });
-        
         let platform_type = options.platform_type;
 
         Self {
@@ -51,10 +37,8 @@ where
             }),
         }
     }
-
-    // todo
+    
     pub fn steamid(&self) -> SteamID {
-        // let token = this.accessToken || this.refreshToken;
         // let decodedToken = decodeJwt(token);
         // return new SteamID(decodedToken.sub);
 

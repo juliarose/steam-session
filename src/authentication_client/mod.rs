@@ -6,9 +6,8 @@ use steamid_ng::SteamID;
 
 use crate::enums::EOSType;
 use crate::helpers::{decode_jwt, get_machine_id, encode_base64, get_spoofed_hostname, create_api_headers, DecodeError};
-use crate::api_method::ApiRequest;
+use crate::net::ApiRequest;
 use crate::transports::Transport;
-use crate::transports::websocket::WebSocketCMTransport;
 use crate::interfaces::{
     AuthenticationClientConstructorOptions,
     PlatformData,
@@ -77,17 +76,17 @@ where
         password: String,
     ) -> Result<EncryptedPassword, Error> {
         let rsa_info = self.get_rsa_key(account_name).await?;
-        let n = BigUint::parse_bytes(rsa_info.get_publickey_mod().as_bytes(), 16)
-            .ok_or_else(|| Error::BadUint(rsa_info.get_publickey_mod().into()))?;
-        let e = BigUint::parse_bytes(rsa_info.get_publickey_exp().as_bytes(), 16)
-            .ok_or_else(|| Error::BadUint(rsa_info.get_publickey_exp().into()))?;
+        let n = BigUint::parse_bytes(rsa_info.publickey_mod().as_bytes(), 16)
+            .ok_or_else(|| Error::BadUint(rsa_info.publickey_mod().into()))?;
+        let e = BigUint::parse_bytes(rsa_info.publickey_exp().as_bytes(), 16)
+            .ok_or_else(|| Error::BadUint(rsa_info.publickey_exp().into()))?;
         let key = RsaPublicKey::new(n, e)?;
         let encrypted_password = key.encrypt(
             &mut rand::thread_rng(),
             Pkcs1v15Encrypt::default(),
             password.as_bytes(),
         )?;
-        let key_timestamp = rsa_info.get_timestamp();
+        let key_timestamp = rsa_info.timestamp();
         let encrypted_password = encode_base64(encrypted_password);
         
         Ok(EncryptedPassword {
@@ -131,11 +130,11 @@ where
             if let Some(machine_id) = &self.machine_id {
                 device_details.set_machine_id(machine_id.clone());
             } else {
-                device_details.set_machine_id(get_machine_id(msg.get_account_name()));
+                device_details.set_machine_id(get_machine_id(msg.account_name()));
             }
         }
         
-        msg.set_device_details(device_details);
+        msg.device_details = Some(device_details).into();
         
         if let Some(steam_guard_machine_token) = details.steam_guard_machine_token {
             msg.set_guard_data(steam_guard_machine_token);
@@ -276,7 +275,10 @@ where
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send,
     {
-        let rx = self.transport.send_request(msg).await?
+        let rx = self.transport.send_request(
+            msg,
+            access_token,
+        ).await?
             .ok_or(Error::NoJob)?;
         let response = rx.await??;
         

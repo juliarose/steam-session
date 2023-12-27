@@ -1842,6 +1842,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db50e77ae196458ccd3dc58a31ea1a90b0698ab1b7928d89f644c25d72070267"
 
 [[package]]
+name = "protobuf"
+version = "3.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b65f4a8ec18723a734e5dc09c173e0abf9690432da5340285d536edcb4dac190"
+dependencies = [
+ "once_cell",
+ "protobuf-support",
+ "thiserror",
+]
+
+[[package]]
+name = "protobuf-support"
+version = "3.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6872f4d4f4b98303239a2b5838f5bbbb77b01ffc892d627957f37a22d7cfe69c"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "psl-types"
 version = "2.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2461,7 +2481,7 @@ dependencies = [
  "lazy_static",
  "log",
  "num_enum 0.7.1",
- "protobuf",
+ "protobuf 3.3.0",
  "rand",
  "reqwest",
  "rsa 0.9.6",
@@ -2484,7 +2504,7 @@ dependencies = [
 name = "steam-session-proto"
 version = "0.1.0"
 dependencies = [
- "protobuf",
+ "protobuf 3.3.0",
 ]
 
 [[package]]
@@ -2505,7 +2525,7 @@ dependencies = [
  "futures-util",
  "log",
  "num_enum 0.5.11",
- "protobuf",
+ "protobuf 2.24.1",
  "rand",
  "sha-1 0.10.1",
  "steam-api",
@@ -2540,7 +2560,7 @@ name = "steam-vent-proto"
 version = "0.1.0"
 source = "git+https://github.com/juliarose/steam-vent#5529ee66a81869f65e442afa491103ecc28f8aee"
 dependencies = [
- "protobuf",
+ "protobuf 2.24.1",
 ]
 
 [[package]]
