@@ -18,5 +18,5 @@ pub use login_session::LoginSession;
 pub mod request;
 pub mod response;
 
-pub (crate) mod authentication_client;
+pub mod authentication_client;
 pub (crate) mod types;

@@ -275,12 +275,10 @@ where
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send,
     {
-        let rx = self.transport.send_request(
+        let response = self.transport.send_request(
             msg,
             access_token,
-        ).await?
-            .ok_or(Error::NoJob)?;
-        let response = rx.await??;
+        ).await?.await??;
         
         Ok(response)
     }

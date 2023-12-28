@@ -2,7 +2,7 @@ use steam_session::login_session::connect_ws;
 use log::LevelFilter;
 use steam_session::transports::Transport;
 use steam_vent::connection::Connection;
-use steam_session::transports::websocket::Error;
+use steam_session::authentication_client::Error;
 use tokio::sync::{mpsc, oneshot};
 use steam_vent::proto::steammessages_clientserver_login::CMsgClientLogon;
 use steam_session::net::ApiRequest;
@@ -22,14 +22,14 @@ impl Transport for ClientTransport {
         &self,
         msg: Msg,
         _access_token: Option<String>,
-    ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, Error>>>, Error> 
+    ) -> Result<oneshot::Receiver<Result<Msg::Response, Error>>, Error> 
     where
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send,
     {
         let (_tx, rx) = oneshot::channel::<Result<Msg::Response, Error>>();
         
-        Ok(Some(rx))
+        Ok(rx)
     }
 }
 

@@ -70,7 +70,7 @@ impl Transport for WebSocketCMTransport {
         &self,
         msg: Msg,
         _access_token: Option<String>,
-    ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, AuthenticationClientError>>>, AuthenticationClientError> 
+    ) -> Result<oneshot::Receiver<Result<Msg::Response, AuthenticationClientError>>, AuthenticationClientError> 
     where
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send,
@@ -90,9 +90,9 @@ impl Transport for WebSocketCMTransport {
                 tx.send(wait_for_response::<Msg>(filter_rx).await).ok();
             });
             
-            Ok(Some(rx))
+            Ok(rx)
         } else {
-            Ok(None)
+            Err(AuthenticationClientError::NoJob)
         }
     }
 }

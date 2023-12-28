@@ -16,7 +16,7 @@ pub trait Transport: Sync + Send {
         &self,
         msg: Msg,
         access_token: Option<String>,
-    ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, AuthenticationClientError>>>, AuthenticationClientError> 
+    ) -> Result<oneshot::Receiver<Result<Msg::Response, AuthenticationClientError>>, AuthenticationClientError> 
     where
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send;
