@@ -1,14 +1,15 @@
-use std::str::Utf8Error;
-
 use base64::{Engine as _, engine::general_purpose};
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, InvalidHeaderValue};
+use protobuf::MessageDyn;
+use serde_json::Value;
 use steamid_ng::SteamID;
 use serde::Deserialize;
 use sha1::{Sha1, Digest};
 use bytebuffer_new::{ByteBuffer, Endian};
 use lazy_regex::regex_captures;
 
-pub const USER_AGENT: &str = "linux x86_64"; 
+pub const USER_AGENT: &str = "linux x86_64";
+
 const CHARS: [char; 26] = [
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
     'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y' ,'Z'
@@ -30,7 +31,9 @@ pub enum DecodeError {
     #[error("Invalid SteamID: {}", .0)]
     InvalidSteamID(String),
     #[error("UTF8 error: {}", .0)]
-    UTF8(#[from] Utf8Error),
+    UTF8(#[from] std::str::Utf8Error),
+    #[error("Print error: {}", .0)]
+    ProtoDecode(#[from] protobuf_json_mapping::PrintError),
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,6 +42,40 @@ pub struct JWT {
     pub steamid: SteamID,
     #[serde(rename = "aud")]
     pub audience: Vec<String>,
+}
+
+pub fn protobuf_to_multipart(msg: &dyn MessageDyn) -> Result<reqwest::multipart::Form, DecodeError> {
+    let json = protobuf_json_mapping::print_to_string(msg)?;
+    let value = serde_json::from_str::<Value>(&json)?;
+    let form = value_to_multipart(value);
+    
+    Ok(form)
+}
+
+pub fn value_to_multipart(value: Value) -> reqwest::multipart::Form {
+    let mut form = reqwest::multipart::Form::new();
+    
+    match value {
+        Value::Object(map) => {
+            for (key, value) in map {
+                match value {
+                    Value::Number(value) => {
+                        form = form.text(key, value.to_string());
+                    },
+                    Value::Bool(value) => {
+                        form = form.text(key, value.to_string());
+                    },
+                    Value::String(value) => {
+                        form = form.text(key, value);
+                    },
+                    _ => {},
+                };
+            }
+        },
+        _ => {},
+    }
+    
+    form
 }
 
 /// Generates a random sessionid.
@@ -54,7 +91,7 @@ pub fn generate_sessionid() -> String {
 }
 
 /// Creates API headers.
-pub fn create_api_headers() -> Result<HeaderMap, crate::authentication_client::Error> {
+pub fn create_api_headers() -> Result<HeaderMap, InvalidHeaderValue> {
     let mut headers = HeaderMap::new();
     
     headers.append(ACCEPT, HeaderValue::from_str("application/json, text/plain, */*")?);
@@ -117,7 +154,7 @@ where
     general_purpose::STANDARD_NO_PAD.decode(input)
 }
 
-/// Decodes input to base64.
+/// Encodes input to base64.
 pub fn encode_base64<I>(input: I) -> String
 where
     I: AsRef<[u8]>

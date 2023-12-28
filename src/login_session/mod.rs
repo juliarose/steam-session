@@ -18,11 +18,10 @@ use crate::request::{
 use crate::serializers::from_number_or_string_option;
 use crate::transports::{Transport, WebSocketCMTransport};
 use crate::types::DateTime;
-use crate::authentication_client::AuthenticationClient;
-use crate::helpers::{decode_jwt, generate_sessionid, create_api_headers};
+use crate::authentication_client::{AuthenticationClient, Error as AuthenticationClientError};
+use crate::helpers::{decode_jwt, generate_sessionid, create_api_headers, value_to_multipart};
 use crate::enums::{ESessionPersistence, EAuthTokenPlatformType, EAuthSessionGuardType};
 
-use std::collections::HashMap;
 use cookie::Cookie;
 use futures::StreamExt;
 use futures::stream::FuturesOrdered;
@@ -56,7 +55,8 @@ pub struct LoginSession<T> {
 
 pub async fn connect_ws() -> Result<LoginSession<WebSocketCMTransport>, LoginSessionError> {
     let platform_type = EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser;
-    let transport = WebSocketCMTransport::connect().await?;
+    let transport = WebSocketCMTransport::connect().await
+        .map_err(|error| AuthenticationClientError::WebSocketCM(error))?;
     
     LoginSessionBuilder::new(transport, platform_type)
         .connect()
@@ -378,7 +378,7 @@ where
                 Ok(_) => {
                     return Ok(true);
                 },
-                Err(LoginSessionError::WebSocketCM(crate::transports::websocket::Error::EResultNotOK(EResult::TwoFactorCodeMismatch))) => {
+                Err(LoginSessionError::AuthenticationClient(AuthenticationClientError::EResultNotOK(EResult::TwoFactorCodeMismatch))) => {
                     // nothing
                 },
                 Err(error) => {
@@ -487,7 +487,7 @@ where
         #[derive(Debug, Deserialize)]
         struct TransferInfo {
             url: String,
-            params: HashMap<String, Value>,
+            params: Value,
         }
         
         #[derive(Debug, Deserialize)]
@@ -589,23 +589,8 @@ where
             .ok_or(LoginSessionError::MalformedResponse)?
             .into_iter()
             .map(|transfer_info| {
-                let mut form = reqwest::multipart::Form::new()
+                let form = value_to_multipart(transfer_info.params)
                     .text("steamID", u64::from(steamid).to_string());
-                
-                for (key, value) in transfer_info.params {
-                    match value {
-                        Value::Number(value) => {
-                            form = form.text(key, value.to_string());
-                        },
-                        Value::Bool(value) => {
-                            form = form.text(key, value.to_string());
-                        },
-                        Value::String(value) => {
-                            form = form.text(key, value);
-                        },
-                        _ => {},
-                    };
-                }
                 
                 log::debug!("POST {}", transfer_info.url);
                 // send a request that will return cookies if it contains cookies

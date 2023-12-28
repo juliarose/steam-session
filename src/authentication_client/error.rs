@@ -1,4 +1,4 @@
-use steam_session_proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
+use crate::enums::{EResult, EAuthTokenPlatformType};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -10,8 +10,6 @@ pub enum Error {
     InvalidHeaderName(#[from] reqwest::header::InvalidHeaderName),
     #[error("serde_qs error: {}", .0)]
     SerdeQS(#[from] serde_qs::Error),
-    #[error("websocket error: {}", .0)]
-    Websocket(#[from] crate::transports::websocket::Error),
     #[error("Decode error: {}", .0)]
     Decode(#[from] crate::helpers::DecodeError),
     #[error("Request does not expect response")]
@@ -24,4 +22,10 @@ pub enum Error {
     RSA(#[from] rsa::Error),
     #[error("reqwest error: {}", .0)]
     Reqwest(#[from] reqwest::Error),
+    #[error("Websocket CM: {}", .0)]
+    WebSocketCM(#[from] crate::transports::websocket::Error),
+    #[error("WebAPI: {}", .0)]
+    WebAPI(#[from] crate::transports::web_api::Error),
+    #[error("Received EResult other than OK: {:?}", .0)]
+    EResultNotOK(EResult),
 }

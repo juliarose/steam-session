@@ -1,10 +1,10 @@
 use super::Error;
 use super::PROTO_MASK;
 use super::message::Message;
+use super::response::ApiResponseBody;
 use crate::enums::{EMsg, EResult};
 use crate::proto::steammessages_base::{CMsgProtoBufHeader, CMsgMulti};
 use crate::proto::steammessages_clientserver_login::CMsgClientLogonResponse;
-use crate::transports::ApiResponseBody;
 use std::io::{Cursor, Read};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};

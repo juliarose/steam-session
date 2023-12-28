@@ -1,7 +1,9 @@
 mod error;
 mod message_filter;
 mod message;
+mod response;
 
+use response::ApiResponseBody;
 use message_filter::MessageFilter;
 pub use error::Error;
 use steam_session_proto::steammessages_clientserver_login::CMsgClientHello;
@@ -10,7 +12,8 @@ use crate::enums::EMsg;
 use crate::net::ApiRequest;
 use crate::proto::steammessages_base::CMsgProtoBufHeader;
 use crate::transports::cm_list_cache::CmListCache;
-use crate::transports::{ApiResponseBody, Transport};
+use crate::transports::Transport;
+use crate::authentication_client::Error as AuthenticationClientError;
 use std::io::Cursor;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -35,7 +38,7 @@ pub const PROTO_MASK: u32 = 0x80000000;
 
 async fn wait_for_response<Msg>(
     rx: oneshot::Receiver<Result<ApiResponseBody, Error>>,
-) -> Result<Msg::Response, Error>
+) -> Result<Msg::Response, AuthenticationClientError>
 where
     Msg: ApiRequest,
     <Msg as ApiRequest>::Response: Send,
@@ -43,12 +46,13 @@ where
     match timeout(std::time::Duration::from_secs(5), rx).await {
         Ok(response) => {
             let body = response??;
+            let response = body.into_response::<Msg>()?;
             
-            body.into_response::<Msg>()
+            Ok(response)
         },
         Err(_error) => {
             log::debug!("Timed out waiting for response from {}", <Msg as ApiRequest>::NAME);
-            Err(Error::Timeout)
+            Err(Error::Timeout.into())
         },
     }
 }
@@ -66,7 +70,7 @@ impl Transport for WebSocketCMTransport {
         &self,
         msg: Msg,
         _access_token: Option<String>,
-    ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, Error>>>, Error> 
+    ) -> Result<Option<oneshot::Receiver<Result<Msg::Response, AuthenticationClientError>>>, AuthenticationClientError> 
     where
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send,
@@ -80,7 +84,7 @@ impl Transport for WebSocketCMTransport {
             let (
                 tx,
                 rx,
-            ) = oneshot::channel::<Result<Msg::Response, Error>>();
+            ) = oneshot::channel::<Result<Msg::Response, AuthenticationClientError>>();
             
             tokio::spawn(async move {
                 tx.send(wait_for_response::<Msg>(filter_rx).await).ok();
