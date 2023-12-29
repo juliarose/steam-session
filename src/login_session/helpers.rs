@@ -1,12 +1,11 @@
 use super::LoginSessionError;
-use crate::authentication_client::AuthenticationClient;
-use crate::interfaces::AuthenticationClientConstructorOptions;
+use crate::authentication_client::{AuthenticationClient, AuthenticationClientConstructorOptions};
 use crate::helpers::USER_AGENT;
 use crate::transports::Transport;
 use crate::proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
 use reqwest::Client;
 
-pub async fn create_handler<T>(
+pub fn create_handler<T>(
     transport: T,
     client: Client,
     platform_type: EAuthTokenPlatformType,

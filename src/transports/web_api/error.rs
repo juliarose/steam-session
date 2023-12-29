@@ -1,3 +1,4 @@
+use crate::enums::EResult;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -9,4 +10,8 @@ pub enum Error {
     Proto(#[from] protobuf::Error),
     #[error("{}", .0)]
     InvalidHeaderValue(#[from] reqwest::header::InvalidHeaderValue),
+    #[error("Unknown EResult: {}", .0)]
+    UnknownEResult(i32),
+    #[error("Received EResult other than OK: {:?}", .0)]
+    EResultNotOK(EResult),
 }

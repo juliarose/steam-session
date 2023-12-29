@@ -7,15 +7,13 @@ pub use builder::LoginSessionBuilder;
 
 use crate::enums::EResult;
 use crate::interfaces::LoginSessionOptions;
-use crate::response::{
-    StartSessionResponseValidAction,
-    StartSessionResponse,
-};
+use crate::response::{StartSessionResponseValidAction, StartSessionResponse};
 use crate::request::{
     StartLoginSessionWithCredentialsDetails,
     StartAuthSessionWithCredentialsRequest,
 };
 use crate::serializers::from_number_or_string_option;
+use crate::transports::web_api::WebApiTransport;
 use crate::transports::{Transport, WebSocketCMTransport};
 use crate::types::DateTime;
 use crate::authentication_client::{AuthenticationClient, Error as AuthenticationClientError};
@@ -38,7 +36,7 @@ const LOGIN_TIMEOUT_SECONDS: i64 = 30;
 
 #[derive(Debug)]
 pub struct LoginSession<T> {
-    pub login_timeout: Duration,
+    login_timeout: Duration,
     account_name: Option<String>,
     refresh_token: Option<String>,
     access_token: Option<String>,
@@ -59,8 +57,15 @@ pub async fn connect_ws() -> Result<LoginSession<WebSocketCMTransport>, LoginSes
         .map_err(|error| AuthenticationClientError::WebSocketCM(error))?;
     
     LoginSessionBuilder::new(transport, platform_type)
-        .connect()
-        .await
+        .build()
+}
+
+pub async fn connect_webapi() -> Result<LoginSession<WebApiTransport>, LoginSessionError> {
+    let platform_type = EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser;
+    let transport = WebApiTransport::new();
+    
+    LoginSessionBuilder::new(transport, platform_type)
+        .build()
 }
 
 impl<T> LoginSession<T>
@@ -75,8 +80,8 @@ where
         LoginSessionBuilder::new(transport, platform_type)
     }
     
-    /// Creates a connection for authentication.
-    pub async fn connect(
+    /// Creates a new [`LoginSession`] to use for authentication.
+    pub fn new(
         transport: T,
         options: LoginSessionOptions,
     ) -> Result<Self, LoginSessionError> {
@@ -88,7 +93,7 @@ where
             platform_type,
             options.machine_id,
             options.user_agent
-        ).await?;
+        )?;
         
         Ok(Self {
             login_timeout: Duration::seconds(LOGIN_TIMEOUT_SECONDS),

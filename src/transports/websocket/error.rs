@@ -1,29 +1,26 @@
-use crate::transports::cm_list_cache;
+use super::cm_list_cache;
 use crate::enums::EResult;
 use tokio_tungstenite::tungstenite;
-use tokio_tungstenite::tungstenite::http::uri::InvalidUri;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("No CM server available")]
-    NoCmServer,
     #[error("{}", .0)]
     CmServer(#[from] cm_list_cache::Error),
     #[error("IO: {}", .0)]
     OI(#[from] std::io::Error),
     #[error("Invalid URI with websocket: {}", .0)]
-    Url(#[from] InvalidUri),
+    Url(#[from] tungstenite::http::uri::InvalidUri),
     #[error("Parsed URL does not contain hostname")]
     UrlNoHostName,
     #[error("HTTP error with websocket: {}", .0)]
-    Http(#[from] tokio_tungstenite::tungstenite::http::Error),
+    Http(#[from] tungstenite::http::Error),
     #[error("Connection error with websocket: {}", .0)]
     Connection(#[from] tungstenite::Error),
     #[error("No response")]
     NoResponse,
     #[error("Response error: {}", .0)]
     ResponseError(String),
-    #[error("Response returned empty body")]
+    #[error("Response returned empty body without an error message")]
     NoBodyInResponse,
     #[error("Received ClientLogOnResponse with result: {:?} (try another CM)", .0)]
     ClientLogOnResponseTryAnotherCM(EResult),

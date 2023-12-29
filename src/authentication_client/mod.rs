@@ -1,27 +1,17 @@
 mod error;
+mod helpers;
 
 pub use error::Error;
-use reqwest::Client;
-use steamid_ng::SteamID;
+pub (crate) use helpers::AuthenticationClientConstructorOptions;
 
-use crate::enums::EOSType;
+use helpers::{PlatformData, DeviceDetails, CheckMachineAuthResponse};
+use crate::enums::{EOSType, EAuthTokenPlatformType, ETokenRenewalType, EAuthSessionGuardType};
 use crate::helpers::{decode_jwt, get_machine_id, encode_base64, get_spoofed_hostname, create_api_headers, DecodeError};
 use crate::net::ApiRequest;
 use crate::transports::Transport;
-use crate::interfaces::{
-    AuthenticationClientConstructorOptions,
-    PlatformData,
-    DeviceDetails,
-    EncryptedPassword, CheckMachineAuthResponse,
-};
-use crate::request::{
-    StartAuthSessionWithCredentialsRequest,
-    MobileConfirmationRequest,
-};
-use steam_session_proto::steammessages_auth_steamclient::{
-    EAuthTokenPlatformType,
-    ETokenRenewalType,
-    EAuthSessionGuardType,
+use crate::interfaces::EncryptedPassword;
+use crate::request::{StartAuthSessionWithCredentialsRequest, MobileConfirmationRequest};
+use crate::proto::steammessages_auth_steamclient::{
     CAuthentication_DeviceDetails,
     CAuthentication_UpdateAuthSessionWithSteamGuardCode_Request,
     CAuthentication_UpdateAuthSessionWithSteamGuardCode_Response,
@@ -37,8 +27,10 @@ use steam_session_proto::steammessages_auth_steamclient::{
     CAuthentication_PollAuthSessionStatus_Request,
     CAuthentication_PollAuthSessionStatus_Response,
 };
-use steam_session_proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
-use reqwest::header::{HeaderMap, USER_AGENT, HeaderValue, ORIGIN, REFERER, COOKIE, CONTENT_TYPE};
+use crate::proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
+use reqwest::Client;
+use steamid_ng::SteamID;
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, ORIGIN, REFERER, COOKIE, CONTENT_TYPE};
 use serde::Serialize;
 use rsa::{RsaPublicKey, Pkcs1v15Encrypt, BigUint};
 
@@ -138,11 +130,6 @@ where
         
         if let Some(steam_guard_machine_token) = details.steam_guard_machine_token {
             msg.set_guard_data(steam_guard_machine_token);
-            
-            // todo
-            // if (typeof details.steamGuardMachineToken == 'string' && isJwtValidForAudience(details.steamGuardMachineToken, 'machine')) {
-            //     data.guard_data = Buffer.from(details.steamGuardMachineToken, 'utf8');
-            // }
         }
 		
         self.send_request(msg, None).await

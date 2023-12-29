@@ -1,60 +1,44 @@
+pub mod cm_server;
+pub mod cm_list_cache;
+
 mod error;
 mod message_filter;
 mod message;
 mod response;
+mod helpers;
 
-use response::ApiResponseBody;
-use message_filter::MessageFilter;
+pub use cm_list_cache::Error as CmListError;
 pub use error::Error;
+
+use cm_list_cache::CmListCache;
+use message_filter::MessageFilter;
 use steam_session_proto::steammessages_clientserver_login::CMsgClientHello;
 
 use crate::enums::EMsg;
 use crate::net::ApiRequest;
 use crate::proto::steammessages_base::CMsgProtoBufHeader;
-use crate::transports::cm_list_cache::CmListCache;
 use crate::transports::Transport;
 use crate::authentication_client::Error as AuthenticationClientError;
 use std::io::Cursor;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
-use protobuf::Message as ProtoMessage;
 use futures::stream::{SplitSink, SplitStream};
-use futures::{SinkExt, StreamExt};
-use rand::Rng;
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
-use tokio::time::timeout;
+use futures::SinkExt;
 use tokio::net::TcpStream;
-use tokio::sync::oneshot;
-use tokio_tungstenite::{tungstenite, connect_async};
+use tokio::sync::{Mutex, oneshot};
+use tokio_tungstenite::tungstenite;
 use tokio_tungstenite::{WebSocketStream, MaybeTlsStream};
-use tokio_tungstenite::tungstenite::http::uri::Uri;
-use tokio_tungstenite::tungstenite::http::request::Request;
+use protobuf::Message as ProtoMessage;
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use rand::Rng;
 use async_trait::async_trait;
+use lazy_static::lazy_static;
 
 pub const PROTOCOL_VERSION: u32 = 65580;
 pub const PROTO_MASK: u32 = 0x80000000;
 
-// const CONNECTION_TIMEOUT_SECONDS: i64 = 10;
-
-async fn wait_for_response<Msg>(
-    rx: oneshot::Receiver<Result<ApiResponseBody, Error>>,
-) -> Result<Msg::Response, AuthenticationClientError>
-where
-    Msg: ApiRequest,
-    <Msg as ApiRequest>::Response: Send,
-{
-    match timeout(std::time::Duration::from_secs(5), rx).await {
-        Ok(response) => {
-            let body = response??;
-            let response = body.into_response::<Msg>()?;
-            
-            Ok(response)
-        },
-        Err(_error) => {
-            log::debug!("Timed out waiting for response from {}", <Msg as ApiRequest>::NAME);
-            Err(Error::Timeout.into())
-        },
-    }
+lazy_static! {
+    pub static ref DEFAULT_CM_LIST: Arc<Mutex<CmListCache>> = Arc::new(tokio::sync::Mutex::new(CmListCache::new()));
 }
 
 #[derive(Debug)]
@@ -87,7 +71,7 @@ impl Transport for WebSocketCMTransport {
             ) = oneshot::channel::<Result<Msg::Response, AuthenticationClientError>>();
             
             tokio::spawn(async move {
-                tx.send(wait_for_response::<Msg>(filter_rx).await).ok();
+                tx.send(helpers::wait_for_response::<Msg>(filter_rx).await).ok();
             });
             
             Ok(rx)
@@ -99,8 +83,7 @@ impl Transport for WebSocketCMTransport {
 
 impl WebSocketCMTransport {
     pub async fn connect() -> Result<WebSocketCMTransport, Error> {
-        let cm_list = Arc::new(tokio::sync::Mutex::new(CmListCache::new()));
-        let transport = connect_to_cm(&cm_list).await?;
+        let transport = helpers::connect_to_cm(&DEFAULT_CM_LIST).await?;
         let mut hello = CMsgClientHello::new();
         
         hello.set_protocol_version(PROTOCOL_VERSION);
@@ -199,49 +182,4 @@ impl WebSocketCMTransport {
         
         Ok(jobid)
     }
-}
-
-/// Generate a random key for the `Sec-WebSocket-Key` header.
-fn generate_key() -> String {
-    // a base64-encoded (see Section 4 of [RFC4648]) value that,
-    // when decoded, is 16 bytes in length (RFC 6455)
-    let r: [u8; 16] = rand::random();
-    data_encoding::BASE64.encode(&r)
-}
-
-async fn connect_to_cm(cm_list: &Arc<tokio::sync::Mutex<CmListCache>>) -> Result<WebSocketCMTransport, Error> {
-    let cm_server = {
-        let mut cm_list = cm_list.lock().await;
-        
-        cm_list.update().await?;
-        // pick a random server
-        cm_list.pick_random_websocket_server()
-    }.ok_or(Error::NoCmServer)?;
-    let connect_addr = format!("wss://{}/cmsocket/", cm_server.endpoint);
-    // let connect_timeout = Duration::seconds(CONNECTION_TIMEOUT_SECONDS);
-    let uri = connect_addr.parse::<Uri>()?;
-    let authority = uri.authority()
-        .ok_or(Error::UrlNoHostName)?.as_str();
-    let host = authority
-        .find('@')
-        .map(|idx| authority.split_at(idx + 1).1)
-        .unwrap_or_else(|| authority);
-    let request = Request::builder()
-        .header("batch-test", "true")
-        .header("Host", host)
-        .header("Connection", "Upgrade")
-        .header("Upgrade", "websocket")
-        .header("Sec-WebSocket-Version", "13")
-        .header("Sec-WebSocket-Key", generate_key())
-        .uri(uri)
-        .body(())?;
-    // todo use timeout when connecting
-    let (ws_stream, _) = connect_async(request).await?;
-    let (ws_write, ws_read) = ws_stream.split();
-    let transport = WebSocketCMTransport::new(
-        ws_read,
-        ws_write,
-    );
-    
-    Ok(transport)
 }

@@ -42,13 +42,13 @@ where
         self
     }
     
-    pub async fn connect(self) -> Result<LoginSession<T>, LoginSessionError> {
+    pub fn build(self) -> Result<LoginSession<T>, LoginSessionError> {
         let options = LoginSessionOptions {
             platform_type: self.platform_type,
             user_agent: self.user_agent,
             machine_id: self.machine_id,
         };
-        let session = LoginSession::connect(self.transport, options).await?;
+        let session = LoginSession::new(self.transport, options)?;
         
         Ok(session)
     }

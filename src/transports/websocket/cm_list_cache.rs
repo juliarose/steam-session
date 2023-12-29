@@ -11,21 +11,21 @@ use reqwest::header::{USER_AGENT, ACCEPT_CHARSET, ACCEPT};
 use lazy_static::lazy_static;
 
 lazy_static! {
-    pub static ref DEFAULT_CLIENT: Client = {
-        Client::new()
-    };
+    pub static ref DEFAULT_CLIENT: Client = Client::new();
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("No CM server available")]
+    NoCmServer,
+    #[error("The request returned a response without a list of servers")]
+    NoCmServerList,
     #[error("{}", .0)]
     Reqwest(#[from] reqwest::Error),
     #[error("HTTP request returned with response status: {}", .0.status())]
     ReqwestResponseNotOk(reqwest::Response),
     #[error("{}", .0)]
     InvalidHeaderValue(#[from] InvalidHeaderValue),
-    #[error("The request returned a response without a list of servers")]
-    NoCmServerList,
     #[error("CM server returned an error with message: {}", .0)]
     CmServerListResponseMessage(String),
     #[error("Error parsing VDF body: {}", .0)]

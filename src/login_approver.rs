@@ -1,4 +1,7 @@
-use crate::{authentication_client::AuthenticationClient, interfaces::AuthenticationClientConstructorOptions, helpers::USER_AGENT, transports::Transport};
+use crate::authentication_client::AuthenticationClient;
+use crate::interfaces::AuthenticationClientConstructorOptions;
+use crate::helpers::USER_AGENT;
+use crate::transports::Transport;
 use reqwest::Client;
 use steamid_ng::SteamID;
 

@@ -23,6 +23,8 @@ impl ApiResponseBody {
             let response = Msg::Response::parse_from_reader(&mut reader)?;
             
             Ok(response)
+        } else if let Some(eresult) = self.eresult {
+            Err(Error::EResultNotOK(eresult))
         } else if let Some(message) = self.error_message {
             Err(Error::ResponseError(message))
         } else {
