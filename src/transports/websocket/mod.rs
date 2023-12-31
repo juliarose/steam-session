@@ -41,6 +41,7 @@ lazy_static! {
     pub static ref DEFAULT_CM_LIST: Arc<Mutex<CmListCache>> = Arc::new(tokio::sync::Mutex::new(CmListCache::new()));
 }
 
+/// Represents a WebSocket CM transport.
 #[derive(Debug)]
 pub struct WebSocketCMTransport {
     websocket_write: tokio::sync::Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>>,
@@ -60,7 +61,7 @@ impl Transport for WebSocketCMTransport {
         <Msg as ApiRequest>::Response: Send,
     {
         if let Some(jobid) = self.send_message(
-            EMsg::ServiceMethodCallFromClientNonAuthed,
+            <Msg as ApiRequest>::KIND,
             msg,
             Some(<Msg as ApiRequest>::NAME),
         ).await? {
@@ -82,12 +83,12 @@ impl Transport for WebSocketCMTransport {
 }
 
 impl WebSocketCMTransport {
+    /// Connects to a CM server.
     pub async fn connect() -> Result<WebSocketCMTransport, Error> {
         let transport = helpers::connect_to_cm(&DEFAULT_CM_LIST).await?;
         let mut hello = CMsgClientHello::new();
         
         hello.set_protocol_version(PROTOCOL_VERSION);
-        
         transport.send_message(
             EMsg::ClientHello,
             hello,
@@ -97,6 +98,7 @@ impl WebSocketCMTransport {
         Ok(transport)
     }
     
+    /// Creates a new [`WebSocketCMTransport`].
     fn new(
         source: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
         websocket_write: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>,
@@ -114,6 +116,7 @@ impl WebSocketCMTransport {
         }
     }
     
+    /// Sends a message to the CM server.
     async fn send_message<'a, Msg>(
         &self,
         emsg: EMsg,

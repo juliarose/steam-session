@@ -1,12 +1,15 @@
 use base64::{Engine as _, engine::general_purpose};
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, InvalidHeaderValue};
-use protobuf::MessageDyn;
 use serde_json::Value;
 use steamid_ng::SteamID;
 use serde::Deserialize;
 use sha1::{Sha1, Digest};
+use sha2::Sha256;
 use bytebuffer_new::{ByteBuffer, Endian};
 use lazy_regex::regex_captures;
+use hmac::{Hmac, Mac};
+
+type HmacSha256 = Hmac<Sha256>;
 
 pub const USER_AGENT: &str = "linux x86_64";
 
@@ -14,11 +17,6 @@ const CHARS: [char; 26] = [
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
     'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y' ,'Z'
 ];
-
-pub struct DecodedQr {
-    pub version: u32,
-    pub client_id: String,
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
@@ -34,24 +32,30 @@ pub enum DecodeError {
     UTF8(#[from] std::str::Utf8Error),
     #[error("Print error: {}", .0)]
     ProtoDecode(#[from] protobuf_json_mapping::PrintError),
+    #[error("HMAC error: {}", .0)]
+    HMACInvalidKeyLength(#[from] hmac::digest::InvalidLength),
+}
+
+/// Represents a decoded QR code.
+pub struct DecodedQr {
+    /// The version of the QR code.
+    pub version: u32,
+    /// The client ID extracted from the QR code.
+    pub client_id: u64,
 }
 
 #[derive(Debug, Deserialize)]
+/// Represents a JSON Web Token (JWT) structure.
 pub struct JWT {
+    /// The SteamID associated with the JWT.
     #[serde(rename = "sub")]
     pub steamid: SteamID,
+    /// The audience of the JWT.
     #[serde(rename = "aud")]
     pub audience: Vec<String>,
 }
 
-pub fn protobuf_to_multipart(msg: &dyn MessageDyn) -> Result<reqwest::multipart::Form, DecodeError> {
-    let json = protobuf_json_mapping::print_to_string(msg)?;
-    let value = serde_json::from_str::<Value>(&json)?;
-    let form = value_to_multipart(value);
-    
-    Ok(form)
-}
-
+/// Converts a value to multipart.
 pub fn value_to_multipart(value: Value) -> reqwest::multipart::Form {
     let mut form = reqwest::multipart::Form::new();
     
@@ -106,16 +110,18 @@ pub fn create_api_headers() -> Result<HeaderMap, InvalidHeaderValue> {
 pub fn decode_qr_url(url: &str) -> Option<DecodedQr> {
     if let Some((_, version_str, client_id, _)) = regex_captures!(r#"/^https?:\/\/s\.team\/q\/(\d+)\/(\d+)(\?|$)/"#, url) {
         let version: u32 = version_str.parse::<u32>().ok()?;
+        let client_id = client_id.parse::<u64>().ok()?;
         
         return Some(DecodedQr {
             version,
-            client_id: client_id.into(),
+            client_id,
         });
     }
     
     None
 }
 
+/// Decodes a JWT.
 pub fn decode_jwt(jwt: &str) -> Result<JWT, DecodeError> {
     let mut parts = jwt.split('.');
     
@@ -140,18 +146,33 @@ pub fn decode_jwt(jwt: &str) -> Result<JWT, DecodeError> {
         }
     }
     
+    // Decodes a base64 string to bytes.
     let decoded = general_purpose::STANDARD_NO_PAD.decode(standard_base64)?;
     let jwt = serde_json::from_slice::<JWT>(&decoded)?;
     
     Ok(jwt)
 }
 
-/// Decodes input from base64.
-pub fn decode_base64<I>(input: I) -> Result<Vec<u8>, base64::DecodeError>
-where
-    I: AsRef<[u8]>
-{
-    general_purpose::STANDARD_NO_PAD.decode(input)
+/// Generates a HMAC signature.
+pub fn generate_hmac_signature(
+    key: &[u8],
+    message: &[u8],
+) -> Result<Vec<u8>, DecodeError> {
+    let mut mac = HmacSha256::new_from_slice(&key)?;
+    
+    mac.update(message);
+    
+    let result = mac.finalize();
+    let bytes = result.into_bytes().to_vec();
+    
+    Ok(bytes)
+}
+
+/// Decodes a base64 string to bytes.
+pub fn decode_base64(base64_str: &str) -> Result<Vec<u8>, DecodeError> {
+    let decoded = general_purpose::STANDARD_NO_PAD.decode(base64_str)?;
+    
+    Ok(decoded)
 }
 
 /// Encodes input to base64.
@@ -162,7 +183,7 @@ where
     general_purpose::STANDARD_NO_PAD.encode(input)
 }
 
-/// Checks if JWT  is valid for audience.
+/// Checks if a JWT is valid for an audience.
 pub fn is_jwt_valid_for_audience(
     jwt: &str,
     audience: &str,
@@ -181,7 +202,7 @@ pub fn is_jwt_valid_for_audience(
     false
 }
 
-/// Gets spoofed hostname.
+/// Generates a spoofed hostname.
 pub fn get_spoofed_hostname() -> String {
     let mut hash = create_sha1(USER_AGENT.as_bytes());
     
@@ -198,7 +219,7 @@ pub fn get_spoofed_hostname() -> String {
     output
 }
 
-/// Generates a machine id.
+/// Generates a machine ID.
 pub fn get_machine_id(account_name: &str) -> Vec<u8> {
     fn get_c_string_bytes(input: &str) -> Vec<u8> {
         let mut bytes = input.as_bytes().to_vec();

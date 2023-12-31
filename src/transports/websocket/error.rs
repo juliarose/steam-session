@@ -16,8 +16,6 @@ pub enum Error {
     Http(#[from] tungstenite::http::Error),
     #[error("Connection error with websocket: {}", .0)]
     Connection(#[from] tungstenite::Error),
-    #[error("No response")]
-    NoResponse,
     #[error("Response error: {}", .0)]
     ResponseError(String),
     #[error("Response returned empty body without an error message")]

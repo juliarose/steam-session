@@ -2,14 +2,14 @@ mod error;
 mod helpers;
 
 pub use error::Error;
-pub (crate) use helpers::AuthenticationClientConstructorOptions;
+pub (crate) use helpers::{EncryptedPassword, AuthenticationClientConstructorOptions};
 
 use helpers::{PlatformData, DeviceDetails, CheckMachineAuthResponse};
+
 use crate::enums::{EOSType, EAuthTokenPlatformType, ETokenRenewalType, EAuthSessionGuardType};
 use crate::helpers::{decode_jwt, get_machine_id, encode_base64, get_spoofed_hostname, create_api_headers, DecodeError};
 use crate::net::ApiRequest;
 use crate::transports::Transport;
-use crate::interfaces::EncryptedPassword;
 use crate::request::{StartAuthSessionWithCredentialsRequest, MobileConfirmationRequest};
 use crate::proto::steammessages_auth_steamclient::{
     CAuthentication_DeviceDetails,
@@ -201,7 +201,7 @@ where
     }
     
     /// Gets auth session info.
-    async fn get_auth_session_info(
+    pub async fn get_auth_session_info(
         &self,
         client_id: u64,
         access_token: String,
@@ -221,7 +221,7 @@ where
     ) -> Result<CAuthentication_UpdateAuthSessionWithMobileConfirmation_Response, Error> {
         let mut msg = CAuthentication_UpdateAuthSessionWithMobileConfirmation_Request::new();
         
-        msg.set_version(details.version);
+        msg.set_version(details.version as i32);
         msg.set_client_id(details.client_id);
         msg.set_steamid(details.steamid);
         msg.set_signature(details.signature);

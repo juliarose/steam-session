@@ -5,8 +5,9 @@ mod helpers;
 pub use error::LoginSessionError;
 pub use builder::LoginSessionBuilder;
 
+use helpers::LoginSessionOptions;
+
 use crate::enums::EResult;
-use crate::interfaces::LoginSessionOptions;
 use crate::response::{StartSessionResponseValidAction, StartSessionResponse};
 use crate::request::{
     StartLoginSessionWithCredentialsDetails,
@@ -47,8 +48,6 @@ pub struct LoginSession<T> {
     steam_guard_code: Option<String>,
     steam_guard_machine_token: Option<Vec<u8>>,
     start_session_response: Option<CAuthentication_BeginAuthSessionViaCredentials_Response>,
-    polling_started_time: Option<DateTime>,
-    polling_canceled: bool,
 }
 
 pub async fn connect_ws() -> Result<LoginSession<WebSocketCMTransport>, LoginSessionError> {
@@ -81,14 +80,13 @@ where
     }
     
     /// Creates a new [`LoginSession`] to use for authentication.
-    pub fn new(
-        transport: T,
-        options: LoginSessionOptions,
+    fn new(
+        options: LoginSessionOptions<T>,
     ) -> Result<Self, LoginSessionError> {
         let platform_type = options.platform_type;
         let client = Client::new();
         let handler = helpers::create_handler(
-            transport,
+            options.transport,
             client.clone(),
             platform_type,
             options.machine_id,
@@ -107,8 +105,6 @@ where
             steam_guard_code: None,
             steam_guard_machine_token: None,
             start_session_response: None,
-            polling_started_time: None,
-            polling_canceled: false,
         })
     }
     
@@ -654,116 +650,80 @@ where
         return Ok(!access_token.is_empty());
     }
     
-    fn total_polling_time(&self) -> chrono::Duration {
-        Utc::now() - self.polling_started_time.unwrap_or_else(|| Utc::now())
+    pub async fn poll(&mut self) -> Result<(), LoginSessionError> {
+        let polling_started_time = Utc::now();
+        let poll_interval = self.start_session_response.as_ref()
+            .ok_or(LoginSessionError::LoginSessionHasNotStarted)?
+            .interval();
+        
+        loop {
+            let total_polling_time = Utc::now() - polling_started_time;
+            
+            if total_polling_time >= self.login_timeout {
+                return Ok(());
+            }
+            
+            if self.do_poll().await? {
+                return Ok(());
+            }
+            
+            // poll again
+            async_std::task::sleep(std::time::Duration::from_secs(poll_interval as u64)).await;
+        }
     }
     
-    pub async fn do_poll(&mut self) -> Result<(), LoginSessionError> {
-        if self.polling_canceled {
-            return Ok(());
-        }
-        
-        if self.polling_started_time.is_none() {
-            self.polling_started_time = Some(Utc::now());
-        }
-        
-        let total_polling_time = self.total_polling_time();
-        
-        if total_polling_time >= self.login_timeout {
-            // timeout
-            self.cancel_login_attempt();
-			return Ok(());
-        }
-        
-        let (clientid, request_id, poll_interval) = {
-            let start_session_response = self.start_session_response.as_ref()
-                .ok_or(LoginSessionError::LoginSessionHasNotStarted)?;
-            let clientid = start_session_response.client_id();
-            let request_id = start_session_response.request_id();
-            let poll_interval = start_session_response.interval();
-            
-            (clientid, request_id, poll_interval)
-        };
-        
-        match self.handler.poll_login_status(
+    /// Performs a poll. Returns true if complete.
+    async fn do_poll(&mut self) -> Result<bool, LoginSessionError> {
+        let start_session_response = self.start_session_response.as_ref()
+            .ok_or(LoginSessionError::LoginSessionHasNotStarted)?;
+        let clientid = start_session_response.client_id();
+        let request_id = start_session_response.request_id();
+        let response = self.handler.poll_login_status(
             clientid,
             request_id.into(),
-        ).await {
-            Ok(response) => {
-                if response.had_remote_interaction() {
-                    
-                }
-
-                if !response.refresh_token().is_empty() {
-                    let client_id = response.new_client_id();
-                    
-                    if let Some(start_session_response) = self.start_session_response.as_mut() {
-                        start_session_response.set_client_id(client_id);
-                    }
-                    
-                    self.access_token = Some(response.access_token().to_owned());
-                    self.set_access_token(response.access_token().to_owned())?;
-                    self.set_refresh_token(response.refresh_token().to_owned())?;
-                    
-                    // On 2023-09-12, Steam stopped issuing access tokens alongside refresh tokens 
-                    // for newly authenticated sessions. This won't affect any consumer apps that 
-                    // use `get_web_cookies`, since that will acquire an access token if needed.
-                    // On 2023-09-22, I noticed that Steam started issuing access tokens again.
-                    
-                    // Consumers using SteamClient or WebBrowser never had a reason to consume the 
-                    // accessToken property directly, since that was only useful as a cookie and 
-                    // `get_web_cookies` should be used instead. However, the access token is also 
-                    // used as a WebAPI key for MobileApp, so we should probably ensure that we 
-                    // have one for that platform.
-                    if self.refresh_token.is_none() && self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_MobileApp {
-                        self.refresh_access_token().await?;
-                    }
-                    
-                    self.cancel_login_attempt();
-                } else if !self.polling_canceled {
-                    tokio::spawn(async move {
-                        // poll again
-                        async_std::task::sleep(std::time::Duration::from_secs(poll_interval as u64)).await;
-                    });
-                }
-            },
-            Err(error) => {
-                if !self.polling_canceled {
-                    log::warn!("Error polling: {}", error);
-                    self.cancel_login_attempt();
-                }
-                
-                return Ok(());
-            },
+        ).await?;
+        
+        if response.had_remote_interaction() {
+            
         }
         
-        Ok(())
-    }
-    
-    /// Cancels polling for an ongoing login attempt. Once canceled, you should no longer interact 
-    /// with this [`LoginSession`], and you should create a new one if you want to start a new 
-    /// attempt.
-    fn cancel_login_attempt(&mut self) {
-        self.polling_canceled = true;
-        // todo
-		// this._pollingCanceled = true;
-		// this._handler.close();
-		
-		// if (this._pollTimer) {
-		// 	clearTimeout(this._pollTimer);
-		// 	return true;
-		// }
-		
-		// return false;
+        if !response.refresh_token().is_empty() {
+            let client_id = response.new_client_id();
+            
+            if let Some(start_session_response) = self.start_session_response.as_mut() {
+                start_session_response.set_client_id(client_id);
+            }
+            
+            self.access_token = Some(response.access_token().to_owned());
+            self.set_access_token(response.access_token().to_owned())?;
+            self.set_refresh_token(response.refresh_token().to_owned())?;
+            
+            // On 2023-09-12, Steam stopped issuing access tokens alongside refresh tokens 
+            // for newly authenticated sessions. This won't affect any consumer apps that 
+            // use `get_web_cookies`, since that will acquire an access token if needed.
+            // On 2023-09-22, I noticed that Steam started issuing access tokens again.
+            
+            // Consumers using SteamClient or WebBrowser never had a reason to consume the 
+            // accessToken property directly, since that was only useful as a cookie and 
+            // `get_web_cookies` should be used instead. However, the access token is also 
+            // used as a WebAPI key for MobileApp, so we should probably ensure that we 
+            // have one for that platform.
+            if {
+                self.refresh_token.is_none() && 
+                self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_MobileApp
+            } {
+                self.refresh_access_token().await?;
+            }
+            
+            return Ok(true);
+        }
+        
+        return Ok(false);
     }
     
     fn verify_started(&self, must_have_steamid: bool) -> Result<(), LoginSessionError> {
         if self.start_session_response.is_none() {
             return Err(LoginSessionError::LoginSessionHasNotStarted);
-        }
-        
-        if self.polling_canceled {
-            return Err(LoginSessionError::LoginAttemptCancelled);
         }
         
         if must_have_steamid && self.steamid().is_none() {

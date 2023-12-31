@@ -2378,19 +2378,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha256"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7895c8ae88588ccead14ff438b939b0c569cd619116f14b4d13fdff7b8333386"
-dependencies = [
- "async-trait",
- "bytes",
- "hex",
- "sha2",
- "tokio",
-]
-
-[[package]]
 name = "signal-hook-registry"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2526,6 +2513,7 @@ dependencies = [
  "dotenv",
  "flate2",
  "futures",
+ "hmac 0.12.1",
  "http 1.0.0",
  "keyvalues-serde",
  "lazy-regex 3.1.0",
@@ -2541,7 +2529,7 @@ dependencies = [
  "serde_json",
  "serde_qs 0.12.0",
  "sha-1 0.10.1",
- "sha256",
+ "sha2",
  "simple-logging",
  "steam-session-proto",
  "steam-vent",

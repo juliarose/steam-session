@@ -10,8 +10,6 @@ pub enum LoginSessionError {
     Serde(#[from] serde_json::Error),
     #[error("Login session has not been started yet")]
     LoginSessionHasNotStarted,
-    #[error("Login attempt has been canceled")]
-    LoginAttemptCancelled,
     #[error("Cannot use this method with this login scheme")]
     LoginCannotUseMethodWithScheme,
     #[error("No Steam Guard code is needed for this login attempt")]

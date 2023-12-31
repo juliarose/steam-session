@@ -1,6 +1,5 @@
-use super::LoginSessionError;
-use super::LoginSession;
-use crate::interfaces::LoginSessionOptions;
+use super::{LoginSessionError, LoginSession};
+use super::helpers::LoginSessionOptions;
 use crate::transports::Transport;
 use steam_session_proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
 
@@ -43,12 +42,12 @@ where
     }
     
     pub fn build(self) -> Result<LoginSession<T>, LoginSessionError> {
-        let options = LoginSessionOptions {
+        let session = LoginSession::new(LoginSessionOptions {
+            transport: self.transport,
             platform_type: self.platform_type,
             user_agent: self.user_agent,
             machine_id: self.machine_id,
-        };
-        let session = LoginSession::new(self.transport, options)?;
+        })?;
         
         Ok(session)
     }

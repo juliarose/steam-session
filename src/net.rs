@@ -1,4 +1,4 @@
-
+use crate::enums::EMsg;
 use crate::proto::steammessages_clientserver_login::CMsgClientHello;
 use crate::proto::custom::CAuthentication_BeginAuthSessionViaCredentials_Request_BinaryGuardData;
 use crate::proto::steammessages_auth_steamclient::{
@@ -13,14 +13,13 @@ use crate::proto::steammessages_auth_steamclient::{
     CAuthentication_GetPasswordRSAPublicKey_Response,
     CAuthentication_PollAuthSessionStatus_Request,
     CAuthentication_PollAuthSessionStatus_Response,
-};
-use crate::proto::steammessages_auth_steamclient::{
     CAuthentication_AccessToken_GenerateForApp_Request,
     CAuthentication_AccessToken_GenerateForApp_Response,
 };
 use std::io::Read;
 
 pub trait ApiRequest: Sized + protobuf::Message + protobuf::MessageFull {
+    const KIND: EMsg;
     const INTERFACE: &'static str;
     const METHOD: &'static str;
     const VERSION: u32;
@@ -41,6 +40,7 @@ impl ApiResponse for () {
 macro_rules! api_method {
     (($interface:literal, $method:literal, $version:expr) => $req:path, $res:path) => {
         impl ApiRequest for $req {
+            const KIND: EMsg = EMsg::ServiceMethodCallFromClientNonAuthed;
             const INTERFACE: &'static str = $interface;
             const METHOD: &'static str = $method;
             const VERSION: u32 = $version;
@@ -56,6 +56,7 @@ macro_rules! api_method {
     };
     (($interface:literal, $method:literal, $version:expr) => $req:path) => {
         impl ApiRequest for $req {
+            const KIND: EMsg = EMsg::ServiceMethodCallFromClientNonAuthed;
             const INTERFACE: &'static str = $interface;
             const METHOD: &'static str = $method;
             const VERSION: u32 = $version;

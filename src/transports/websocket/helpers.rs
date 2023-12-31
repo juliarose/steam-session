@@ -27,7 +27,6 @@ pub async fn connect_to_cm(cm_list: &Arc<tokio::sync::Mutex<CmListCache>>) -> Re
         cm_list.pick_random_websocket_server()
     }.ok_or(Error::CmServer(CmListError::NoCmServer))?;
     let connect_addr = format!("wss://{}/cmsocket/", cm_server.endpoint);
-    // let connect_timeout = Duration::seconds(CONNECTION_TIMEOUT_SECONDS);
     let uri = connect_addr.parse::<Uri>()?;
     let authority = uri.authority()
         .ok_or(Error::UrlNoHostName)?.as_str();
@@ -45,6 +44,7 @@ pub async fn connect_to_cm(cm_list: &Arc<tokio::sync::Mutex<CmListCache>>) -> Re
         .uri(uri)
         .body(())?;
     // todo use timeout when connecting
+    // let connect_timeout = Duration::seconds(CONNECTION_TIMEOUT_SECONDS);
     let (ws_stream, _) = connect_async(request).await?;
     let (ws_write, ws_read) = ws_stream.split();
     let transport = WebSocketCMTransport::new(

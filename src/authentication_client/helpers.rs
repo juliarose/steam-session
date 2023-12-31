@@ -8,6 +8,12 @@ use reqwest::Client;
 use reqwest::header::HeaderMap;
 use serde::Deserialize;
 
+#[derive(Debug, Clone)]
+pub struct EncryptedPassword {
+    pub encrypted_password: String,
+    pub key_timestamp: u64,
+}
+
 #[derive(Debug)]
 pub struct AuthenticationClientConstructorOptions<T> {
     pub platform_type: EAuthTokenPlatformType,

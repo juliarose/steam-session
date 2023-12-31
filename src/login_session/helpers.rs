@@ -2,8 +2,16 @@ use super::LoginSessionError;
 use crate::authentication_client::{AuthenticationClient, AuthenticationClientConstructorOptions};
 use crate::helpers::USER_AGENT;
 use crate::transports::Transport;
-use crate::proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
+use crate::enums::EAuthTokenPlatformType;
 use reqwest::Client;
+
+#[derive(Debug)]
+pub struct LoginSessionOptions<T> {
+    pub transport: T,
+    pub platform_type: EAuthTokenPlatformType,
+    pub user_agent: Option<&'static str>,
+    pub machine_id: Option<Vec<u8>>,
+}
 
 pub fn create_handler<T>(
     transport: T,
