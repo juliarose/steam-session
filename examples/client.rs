@@ -27,9 +27,9 @@ impl Transport for ClientTransport {
         Msg: ApiRequest,
         <Msg as ApiRequest>::Response: Send,
     {
-        let (tx, rx) = oneshot::channel::<Result<Msg::Response, Error>>();
+        let (_tx, rx) = oneshot::channel::<Result<Msg::Response, Error>>();
         let mut buffer = Vec::new();
-        let name = <Msg as ApiRequest>::NAME;
+        let _name = <Msg as ApiRequest>::NAME;
         
         msg.write_to_vec(&mut buffer).unwrap();
         
@@ -44,12 +44,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
     simple_logging::log_to_stderr(LevelFilter::Debug);
     
-    let (connection, rx) = Connection::login(CMsgClientLogon::new()).await?;
-    let (main_tx, mut main_rx) = mpsc::channel::<Message>(10);
-    let session = connect_ws().await?;
+    let (_connection, _rx) = Connection::login(CMsgClientLogon::new()).await?;
+    let (_main_tx, mut main_rx) = mpsc::channel::<Message>(10);
+    let _session = connect_ws().await?;
     
     tokio::spawn(async move {
-        while let Some(message) = main_rx.recv().await {
+        while let Some(_message) = main_rx.recv().await {
             // act on message
         }
     });

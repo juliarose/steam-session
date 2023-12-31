@@ -30,7 +30,7 @@ impl Transport for WebApiTransport {
         
         tokio::spawn(async move {
             let result = helpers::get_response(msg, access_token).await
-                .map_err(|error| AuthenticationClientError::WebAPI(error));
+                .map_err(AuthenticationClientError::WebAPI);
             
             tx.send(result)
         });

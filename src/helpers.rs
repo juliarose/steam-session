@@ -218,7 +218,7 @@ pub fn generate_hmac_signature(
     key: &[u8],
     message: &[u8],
 ) -> Result<Vec<u8>, DecodeError> {
-    let mut mac = HmacSha256::new_from_slice(&key)?;
+    let mut mac = HmacSha256::new_from_slice(key)?;
     
     mac.update(message);
     

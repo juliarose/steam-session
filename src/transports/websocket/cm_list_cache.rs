@@ -162,16 +162,14 @@ fn parse_cm_list(text: &str) -> Result<Vec<CmServer>, Error> {
         message: String,
     }
     
-    let body = keyvalues_serde::from_str::<CmBody>(&text)?;
+    let body = keyvalues_serde::from_str::<CmBody>(text)?;
     
     if body.success != 1 {
         return Err(Error::CmServerListResponseMessage(body.message));
     }
     
     let mut serverlist = body.serverlist
-        .ok_or(Error::NoCmServerList)?
-        .into_iter()
-        .map(|(_, cmserver)| cmserver)
+        .ok_or(Error::NoCmServerList)?.into_values()
         .collect::<Vec<_>>();
     
     if serverlist.is_empty() {
@@ -191,7 +189,7 @@ mod tests {
     #[test]
     fn parse_vdf() {
         let text = include_str!("./fixtures/cmlist.vdf");
-        let serverlist = parse_cm_list(&text).unwrap();
+        let serverlist = parse_cm_list(text).unwrap();
         
         assert_eq!(serverlist.first().unwrap().endpoint, "ext1-ord1.steamserver.net:27017");
     }

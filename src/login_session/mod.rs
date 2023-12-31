@@ -53,7 +53,7 @@ pub struct LoginSession<T> {
 pub async fn connect_ws() -> Result<LoginSession<WebSocketCMTransport>, LoginSessionError> {
     let platform_type = EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser;
     let transport = WebSocketCMTransport::connect().await
-        .map_err(|error| AuthenticationClientError::WebSocketCM(error))?;
+        .map_err(AuthenticationClientError::WebSocketCM)?;
     
     LoginSessionBuilder::new(transport, platform_type)
         .build()
@@ -403,14 +403,12 @@ where
             .iter()
             .any(|allowed_confirmation| allowed_confirmation.confirmation_type() == EAuthSessionGuardType::k_EAuthSessionGuardType_MachineToken);
         
-        if {
-            self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser &&
-            has_machine_token_confirmation
-        } {
+        if self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser &&
+        has_machine_token_confirmation {
             let response = self.handler.check_machine_auth_or_send_code_email(
                 start_session_response.client_id(),
                 start_session_response.steamid().into(),
-                self.steam_guard_machine_token.as_ref().map(|token| token.as_slice()),
+                self.steam_guard_machine_token.as_deref(),
             ).await?;
             
             if response.result == EResult::OK {
@@ -536,20 +534,16 @@ where
         // If our platform type is MobileApp or SteamClient, then our access token *is* our 
         // session cookie. The same is likely true for WebBrowser, but we want to mimic official 
         // behavior as closely as possible to avoid any potential future breakage.
-        if {
-            self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_SteamClient ||
-            self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_MobileApp
-        } {
+        if self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_SteamClient ||
+        self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_MobileApp {
             // Refresh our access token if we either don't have one, or the token we have is 
             // greater than 10 minutes old. Technically we could just decode the JWT and find out 
             // when it expires (or was issued), but let's try to minimize how much we depend on 
             // the access token being a JWT (as Valve may change it at any point).
-            if {
-                self.access_token.is_none() ||
-                self.access_token_set_at
-                    .map(|datetime| Utc::now() - datetime > Duration::minutes(10))
-                    .unwrap_or(false)
-            } {
+            if self.access_token.is_none() ||
+            self.access_token_set_at
+                .map(|datetime| Utc::now() - datetime > Duration::minutes(10))
+                .unwrap_or(false) {
                 self.refresh_access_token().await?;
             }
             
@@ -647,7 +641,7 @@ where
         self.set_access_token(access_token.to_owned())?;
         self.set_refresh_token(refresh_token.to_owned())?;
         
-        return Ok(!access_token.is_empty());
+        Ok(!access_token.is_empty())
     }
     
     pub async fn poll(&mut self) -> Result<(), LoginSessionError> {
@@ -708,17 +702,15 @@ where
             // `get_web_cookies` should be used instead. However, the access token is also 
             // used as a WebAPI key for MobileApp, so we should probably ensure that we 
             // have one for that platform.
-            if {
-                self.refresh_token.is_none() && 
-                self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_MobileApp
-            } {
+            if self.refresh_token.is_none() && 
+            self.platform_type == EAuthTokenPlatformType::k_EAuthTokenPlatformType_MobileApp {
                 self.refresh_access_token().await?;
             }
             
             return Ok(true);
         }
         
-        return Ok(false);
+        Ok(false)
     }
     
     fn verify_started(&self, must_have_steamid: bool) -> Result<(), LoginSessionError> {

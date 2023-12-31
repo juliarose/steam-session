@@ -31,18 +31,18 @@ pub struct DeviceDetails {
     pub gaming_device_type: Option<u32>,
 }
 
-impl Into<CAuthentication_DeviceDetails> for DeviceDetails {
-    fn into(self) -> CAuthentication_DeviceDetails {
+impl From<DeviceDetails> for CAuthentication_DeviceDetails {
+    fn from(val: DeviceDetails) -> Self {
         let mut msg = CAuthentication_DeviceDetails::new();
         
-        msg.set_device_friendly_name(self.device_friendly_name);
-        msg.set_platform_type(self.platform_type);
+        msg.set_device_friendly_name(val.device_friendly_name);
+        msg.set_platform_type(val.platform_type);
         
-        if let Some(os_type) = self.os_type {
+        if let Some(os_type) = val.os_type {
             msg.set_os_type(os_type as i32);
         }
         
-        if let Some(gaming_device_type) = self.gaming_device_type {
+        if let Some(gaming_device_type) = val.gaming_device_type {
             msg.set_gaming_device_type(gaming_device_type);
         }
         

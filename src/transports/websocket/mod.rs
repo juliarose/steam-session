@@ -140,7 +140,7 @@ impl WebSocketCMTransport {
         let jobid = if emsg == EMsg::ServiceMethodCallFromClientNonAuthed {
             let mut jobid_buffer = rand::thread_rng().gen::<[u8; 8]>();
             
-            jobid_buffer[0] = jobid_buffer[0] & 0x7f;
+            jobid_buffer[0] &= 0x7f;
             
             if let Some(target_job_name) = service_method_name {
                 proto_header.set_target_job_name(target_job_name.to_string());
@@ -164,7 +164,7 @@ impl WebSocketCMTransport {
         let mut header: Vec<u8> = Vec::new();
         let header_length = encoded_proto_header.len() as u32;
         
-        header.write_u32::<LittleEndian>((emsg as u32 | PROTO_MASK) >> 0)?; // 4
+        header.write_u32::<LittleEndian>(emsg as u32 | PROTO_MASK)?; // 4
         header.write_u32::<LittleEndian>(header_length)?; // 8
         
         if let Some(jobid) = jobid {
