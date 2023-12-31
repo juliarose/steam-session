@@ -174,7 +174,7 @@ where
         }?;
         let decoded = decode_jwt(token).ok()?;
         
-        Some(decoded.steamid)
+        Some(decoded.sub)
     }
     
     /// Gets the account name.
@@ -220,12 +220,12 @@ where
         
         let decoded = decode_jwt(&token)?;
         
-        if decoded.audience.iter().any(|a| a == "derive") {
+        if decoded.aud.iter().any(|a| a == "derive") {
             return Err(LoginSessionError::ExpectedAccessToken);
         }
         
         if let Some(start_session_response) = &self.start_session_response {
-            if start_session_response.steamid() != u64::from(decoded.steamid) {
+            if start_session_response.steamid() != u64::from(decoded.sub) {
                 return Err(LoginSessionError::TokenIsForDifferentAccount);
             }
         }
@@ -233,7 +233,7 @@ where
         if let Some(refresh_token) = &self.refresh_token {
             let decoded_refresh_token = decode_jwt(refresh_token)?;
             
-            if decoded_refresh_token.steamid != decoded.steamid {
+            if decoded_refresh_token.sub != decoded.sub {
                 return Err(LoginSessionError::TokenBelongsToOtherAccount);
             }
         }
@@ -267,7 +267,7 @@ where
         
         let decoded = decode_jwt(&token)?;
         
-        if !decoded.audience.iter().any(|a| a == "derive") {
+        if !decoded.aud.iter().any(|a| a == "derive") {
             return Err(LoginSessionError::ExpectedRefreshToken);
         }
         
@@ -278,12 +278,12 @@ where
             EAuthTokenPlatformType::k_EAuthTokenPlatformType_Unknown => "unknown",
         };
         
-        if !decoded.audience.iter().any(|a| a == required_audience) {
+        if !decoded.aud.iter().any(|a| a == required_audience) {
             return Err(LoginSessionError::TokenPlatformDifferent(required_audience.into()));
         }
         
         if let Some(start_session_response) = &self.start_session_response {
-            if start_session_response.steamid() != u64::from(decoded.steamid) {
+            if start_session_response.steamid() != u64::from(decoded.sub) {
                 return Err(LoginSessionError::TokenIsForDifferentAccount);
             }
         }
@@ -291,7 +291,7 @@ where
         if let Some(access_token) = &self.access_token {
             let decoded_access_token = decode_jwt(access_token)?;
             
-            if decoded_access_token.steamid != decoded.steamid {
+            if decoded_access_token.sub != decoded.sub {
                 return Err(LoginSessionError::TokenBelongsToOtherAccount);
             }
         }

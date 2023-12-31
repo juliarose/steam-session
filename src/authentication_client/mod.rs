@@ -246,7 +246,7 @@ where
         };
         
         msg.set_refresh_token(refresh_token);
-        msg.set_steamid(u64::from(decoded.steamid));
+        msg.set_steamid(u64::from(decoded.sub));
         msg.set_renewal_type(renewal_type);
         
         self.send_request(msg, None).await

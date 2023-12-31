@@ -1,6 +1,6 @@
 use super::LoginApprover;
 use crate::enums::EAuthTokenPlatformType;
-use crate::helpers::USER_AGENT;
+use crate::helpers::DEFAULT_USER_AGENT;
 
 /// Builder for creating a [`LoginApprover`].
 ///
@@ -34,7 +34,7 @@ impl LoginApproverBuilder {
             shared_secret,
             platform_type: EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser,
             machine_id: None,
-            user_agent: USER_AGENT,
+            user_agent: DEFAULT_USER_AGENT,
         }
     }
     

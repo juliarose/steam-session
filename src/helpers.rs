@@ -11,13 +11,14 @@ use hmac::{Hmac, Mac};
 
 type HmacSha256 = Hmac<Sha256>;
 
-pub const USER_AGENT: &str = "linux x86_64";
+pub const DEFAULT_USER_AGENT: &str = "linux x86_64";
 
 const CHARS: [char; 26] = [
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
     'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y' ,'Z'
 ];
 
+/// Represents a decode error.
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
     #[error("Invalid JWT")]
@@ -45,14 +46,32 @@ pub struct DecodedQr {
 }
 
 #[derive(Debug, Deserialize)]
-/// Represents a JSON Web Token (JWT) structure.
+/// Represents a JSON Web Token (JWT) payload.
 pub struct JWT {
+    /// The issuer of the JWT.
+    pub iss: String,
     /// The SteamID associated with the JWT.
     #[serde(rename = "sub")]
-    pub steamid: SteamID,
+    pub sub: SteamID,
     /// The audience of the JWT.
     #[serde(rename = "aud")]
-    pub audience: Vec<String>,
+    pub aud: Vec<String>,
+    /// The expiration time of the JWT.
+    pub exp: u64,
+    /// The time the JWT was issued.
+    pub iat: u64,
+    /// The time the JWT was not valid before.
+    pub nbf: u64,
+    /// The time the JWT was issued.
+    pub oat: u64,
+    /// The JWT ID.
+    pub jti: String,
+    /// The permission level of the JWT.
+    pub per: u8,
+    /// The IP address of the subject.
+    pub ip_subject: String,
+    /// The IP address of the confirmer.
+    pub ip_confirmer: String,
 }
 
 /// Converts a value to multipart.
@@ -108,7 +127,7 @@ pub fn create_api_headers() -> Result<HeaderMap, InvalidHeaderValue> {
 
 /// Decodes QR url.
 pub fn decode_qr_url(url: &str) -> Option<DecodedQr> {
-    if let Some((_, version_str, client_id, _)) = regex_captures!(r#"/^https?:\/\/s\.team\/q\/(\d+)\/(\d+)(\?|$)/"#, url) {
+    if let Some((_, version_str, client_id, _)) = regex_captures!(r#"^https?:\/\/s\.team\/q\/(\d+)\/(\d+)(\?|$)"#, url) {
         let version: u32 = version_str.parse::<u32>().ok()?;
         let client_id = client_id.parse::<u64>().ok()?;
         
@@ -121,7 +140,48 @@ pub fn decode_qr_url(url: &str) -> Option<DecodedQr> {
     None
 }
 
-/// Decodes a JWT.
+/// Decodes a JWT for its payload. The string is seperated into three parts by periods. The first 
+/// part is the header, the second part is the payload, and the third part is the signature.
+/// 
+/// A JWT typically looks like the following: `xxxxx.yyyyy.zzzzz`
+/// 
+/// The header typically consists of two parts: the type of the token, which is JWT, and the 
+/// signing algorithm being used, such as HMAC SHA256 or RSA.
+///
+/// For example:
+/// ```json
+/// {
+///   "alg": "EdDSA",
+///   "typ": "JWT"
+/// }
+/// ```
+/// 
+/// The second part of the token is the payload, which contains the claims. Claims are statements 
+/// about an entity (typically, the user) and additional data. There are three types of claims: 
+/// registered, public, and private claims.
+/// 
+/// Steam uses the following claims:
+/// ```json
+/// {
+///   "iss": "steam",
+///   "sub": "76500000000000000",
+///   "aud": [
+///     "web",
+///     "renew",
+///     "derive"
+///   ],
+///   "exp": 1722401188,
+///   "nbf": 1695346560,
+///   "iat": 1703986560,
+///   "jti": "0DD5_23ABCE40_2969F",
+///   "oat": 1703986560,
+///   "per": 1,
+///   "ip_subject": "127.0.0.1",
+///   "ip_confirmer": "127.0.0.1"
+/// }
+/// ```
+/// 
+/// See https://jwt.io/introduction for more information on JSON web tokens.
 pub fn decode_jwt(jwt: &str) -> Result<JWT, DecodeError> {
     let mut parts = jwt.split('.');
     
@@ -183,28 +243,9 @@ where
     general_purpose::STANDARD_NO_PAD.encode(input)
 }
 
-/// Checks if a JWT is valid for an audience.
-pub fn is_jwt_valid_for_audience(
-    jwt: &str,
-    audience: &str,
-    steamid: Option<&str>,
-) -> bool {
-    if let Ok(decoded) = decode_jwt(jwt) {
-        if let Some(steamid) = steamid {
-            if u64::from(decoded.steamid).to_string() != steamid {
-                return false;
-            }
-        }
-        
-        return decoded.audience.iter().any(|a| a == audience);
-    }
-    
-    false
-}
-
 /// Generates a spoofed hostname.
 pub fn get_spoofed_hostname() -> String {
-    let mut hash = create_sha1(USER_AGENT.as_bytes());
+    let mut hash = create_sha1(DEFAULT_USER_AGENT.as_bytes());
     
     hash.truncate(7);
     
@@ -275,4 +316,42 @@ fn create_sha1(input: &[u8]) -> Vec<u8> {
     
     hasher.update(input);
     hasher.finalize().to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_decode_jwt() {
+        let jwt = "eyAidHlwIjogIkpXVCIsICJhbGciOiAiRWREU0EiIH0.eyAiaXNzIjogInN0ZWFtIiwgInN1YiI6ICI3NjUwMDAwMDAwMDAwMDAwMCIsICJhdWQiOiBbICJ3ZWIiLCAicmVuZXciLCAiZGVyaXZlIiBdLCAiZXhwIjogMTcyMjQwMTE4OCwgIm5iZiI6IDE2OTUzNDY1NjAsICJpYXQiOiAxNzAzOTg2NTYwLCAianRpIjogIjBERDVfMjNBQkNFNDBfMjk2OUYiLCAib2F0IjogMTcwMzk4NjU2MCwgInBlciI6IDEsICJpcF9zdWJqZWN0IjogIjEyNy4wLjAuMSIsICJpcF9jb25maXJtZXIiOiAiMTI3LjAuMC4xIiB9.-fsYDOMqkVFveAAbvSCcED5NLpCbacbY6Mq9N1fev56QCh9f6PNaksqASI2dJORZFPLhZj37kK1UwfX53QYVDF";
+        let decoded = decode_jwt(jwt).unwrap();
+        
+        assert!(decoded.aud.iter().any(|a| a == "web"));
+        assert_eq!(decoded.sub, SteamID::from(76500000000000000));
+        assert_eq!(decoded.iss, "steam");
+        assert_eq!(decoded.exp, 1722401188);
+        assert_eq!(decoded.nbf, 1695346560);
+        assert_eq!(decoded.iat, 1703986560);
+        assert_eq!(decoded.jti, "0DD5_23ABCE40_2969F");
+        assert_eq!(decoded.oat, 1703986560);
+        assert_eq!(decoded.per, 1);
+    }
+    
+    #[test]
+    fn test_bad_jwt() {
+        let jwt = "Yup, this is a bad JWT. It's not even a JWT. It's just a string.";
+        let decoded = decode_jwt(jwt).unwrap_err();
+        
+        assert!(matches!(decoded, DecodeError::InvalidJWT));
+    }
+    
+    #[test]
+    fn decodes_qr_url() {
+        let url = "https://s.team/q/1/123456789012345678";
+        let decoded = decode_qr_url(url).unwrap();
+        
+        assert_eq!(decoded.version, 1);
+        assert_eq!(decoded.client_id, 123456789012345678);
+    }
 }

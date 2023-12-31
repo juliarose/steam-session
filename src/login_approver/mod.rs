@@ -47,7 +47,7 @@ impl LoginApprover {
     pub fn steamid(&self) -> Result<SteamID, Error> {
         let decoded_token = decode_jwt(&self.access_token)?;
         
-        Ok(decoded_token.steamid)
+        Ok(decoded_token.sub)
     }
     
     /// Gets the access token.
@@ -62,11 +62,11 @@ impl LoginApprover {
     ) -> Result<(), Error> {
         let decoded = decode_jwt(&access_token)?;
         
-        if !decoded.audience.iter().any(|s| s == "derive") {
+        if !decoded.aud.iter().any(|s| s == "derive") {
             return Err(Error::RefreshToken);
         }
         
-        if !decoded.audience.iter().any(|s| s == "mobile") {
+        if !decoded.aud.iter().any(|s| s == "mobile") {
             return Err(Error::InvalidToken);
         }
         
@@ -133,11 +133,11 @@ impl TryFrom<LoginApproverBuilder> for LoginApprover {
         });
         let decoded_access_token = decode_jwt(&builder.access_token)?;
         
-        if !decoded_access_token.audience.iter().any(|s| s == "derive") {
+        if !decoded_access_token.aud.iter().any(|s| s == "derive") {
             return Err(Error::RefreshToken);
         }
         
-        if !decoded_access_token.audience.iter().any(|s| s == "mobile") {
+        if !decoded_access_token.aud.iter().any(|s| s == "mobile") {
             return Err(Error::InvalidToken);
         }
         
