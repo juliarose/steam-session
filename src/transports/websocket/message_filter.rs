@@ -86,7 +86,7 @@ impl MessageFilter {
 
 fn process_multi_message(
     filter: &MessageFilter,
-    body_buffer: &Vec<u8>,
+    body_buffer: &[u8],
 ) -> Result<(), Error> {
     let message = CMsgMulti::parse_from_bytes(body_buffer)?;
     let payload = message.message_body();
@@ -104,7 +104,7 @@ fn process_multi_message(
     while let Ok(chunk_size) = cursor.read_u32::<LittleEndian>() {
         let mut chunk_buffer: Vec<u8> = vec![0; chunk_size as usize];
         
-        cursor.read(&mut chunk_buffer)?;
+        cursor.read_exact(&mut chunk_buffer)?;
         check_ws_message(filter, chunk_buffer)?;
     }
     
@@ -117,7 +117,7 @@ fn parse_message(msg: Vec<u8>) -> Result<MessageData, Error> {
     let header_length = cursor.read_u32::<LittleEndian>()?;
     let mut header_buffer: Vec<u8> = vec![0; header_length as usize];
     
-    cursor.read(&mut header_buffer)?;
+    cursor.read_exact(&mut header_buffer)?;
     
     let mut body: Vec<u8> = Vec::new();
     

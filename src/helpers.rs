@@ -47,7 +47,7 @@ pub struct DecodedQr {
 
 #[derive(Debug, Deserialize)]
 /// Represents a JSON Web Token (JWT) payload.
-pub struct JWT {
+pub struct JwtPayload {
     /// The issuer of the JWT.
     pub iss: String,
     /// The SteamID associated with the JWT.
@@ -78,24 +78,21 @@ pub struct JWT {
 pub fn value_to_multipart(value: Value) -> reqwest::multipart::Form {
     let mut form = reqwest::multipart::Form::new();
     
-    match value {
-        Value::Object(map) => {
-            for (key, value) in map {
-                match value {
-                    Value::Number(value) => {
-                        form = form.text(key, value.to_string());
-                    },
-                    Value::Bool(value) => {
-                        form = form.text(key, value.to_string());
-                    },
-                    Value::String(value) => {
-                        form = form.text(key, value);
-                    },
-                    _ => {},
-                };
-            }
-        },
-        _ => {},
+    if let Value::Object(map) = value {
+        for (key, value) in map {
+            match value {
+                Value::Number(value) => {
+                    form = form.text(key, value.to_string());
+                },
+                Value::Bool(value) => {
+                    form = form.text(key, value.to_string());
+                },
+                Value::String(value) => {
+                    form = form.text(key, value);
+                },
+                _ => {},
+            };
+        }
     }
     
     form
@@ -182,7 +179,7 @@ pub fn decode_qr_url(url: &str) -> Option<DecodedQr> {
 /// ```
 /// 
 /// See https://jwt.io/introduction for more information on JSON web tokens.
-pub fn decode_jwt(jwt: &str) -> Result<JWT, DecodeError> {
+pub fn decode_jwt(jwt: &str) -> Result<JwtPayload, DecodeError> {
     let mut parts = jwt.split('.');
     
     parts.next().ok_or(DecodeError::InvalidJWT)?;
@@ -208,7 +205,7 @@ pub fn decode_jwt(jwt: &str) -> Result<JWT, DecodeError> {
     
     // Decodes a base64 string to bytes.
     let decoded = general_purpose::STANDARD_NO_PAD.decode(standard_base64)?;
-    let jwt = serde_json::from_slice::<JWT>(&decoded)?;
+    let jwt = serde_json::from_slice::<JwtPayload>(&decoded)?;
     
     Ok(jwt)
 }

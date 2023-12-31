@@ -29,7 +29,7 @@ pub enum Error {
     #[error("CM server returned an error with message: {}", .0)]
     CmServerListResponseMessage(String),
     #[error("Error parsing VDF body: {}", .0)]
-    VdfParse(#[from] keyvalues_serde::error::Error),
+    VdfParse(#[from] Box<keyvalues_serde::error::Error>),
 }
 
 /// A container for a list of cached [`CmServer`].
@@ -38,6 +38,12 @@ pub struct CmListCache {
     inner: Vec<CmServer>,
     expiry_duration: Duration,
     last_cached: Option<chrono::DateTime<Utc>>,
+}
+
+impl Default for CmListCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CmListCache {
@@ -162,7 +168,8 @@ fn parse_cm_list(text: &str) -> Result<Vec<CmServer>, Error> {
         message: String,
     }
     
-    let body = keyvalues_serde::from_str::<CmBody>(text)?;
+    let body = keyvalues_serde::from_str::<CmBody>(text)
+        .map_err(Box::new)?;
     
     if body.success != 1 {
         return Err(Error::CmServerListResponseMessage(body.message));

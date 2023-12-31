@@ -12,7 +12,7 @@ use tokio::sync::oneshot;
 const HOSTNAME: &str = "api.steampowered.com";
 
 /// Web API transport.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct WebApiTransport {}
 
 #[async_trait]
@@ -42,7 +42,7 @@ impl Transport for WebApiTransport {
 impl WebApiTransport {
     /// Creates a new [`WebApiTransport`].
     pub fn new() -> Self {
-        Self {}
+        Self::default()
     }
     
     /// Gets the URL.
