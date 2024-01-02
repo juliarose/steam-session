@@ -5,8 +5,6 @@ use steamid_ng::SteamID;
 use serde::Deserialize;
 use sha1::{Sha1, Digest};
 use sha2::Sha256;
-use bytebuffer_new::{ByteBuffer, Endian};
-use lazy_regex::regex_captures;
 use hmac::{Hmac, Mac};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -35,14 +33,6 @@ pub enum DecodeError {
     ProtoDecode(#[from] protobuf_json_mapping::PrintError),
     #[error("HMAC error: {}", .0)]
     HMACInvalidKeyLength(#[from] hmac::digest::InvalidLength),
-}
-
-/// Represents a decoded QR code.
-pub struct DecodedQr {
-    /// The version of the QR code.
-    pub version: u32,
-    /// The client ID extracted from the QR code.
-    pub client_id: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -120,21 +110,6 @@ pub fn create_api_headers() -> Result<HeaderMap, InvalidHeaderValue> {
     headers.append("sec-fetch-dest", HeaderValue::from_str("empty")?);
     
     Ok(headers)
-}
-
-/// Decodes QR url.
-pub fn decode_qr_url(url: &str) -> Option<DecodedQr> {
-    if let Some((_, version_str, client_id, _)) = regex_captures!(r#"^https?:\/\/s\.team\/q\/(\d+)\/(\d+)(\?|$)"#, url) {
-        let version: u32 = version_str.parse::<u32>().ok()?;
-        let client_id = client_id.parse::<u64>().ok()?;
-        
-        return Some(DecodedQr {
-            version,
-            client_id,
-        });
-    }
-    
-    None
 }
 
 /// Decodes a JWT for its payload. The string is seperated into three parts by periods. The first 
@@ -257,58 +232,7 @@ pub fn get_spoofed_hostname() -> String {
     output
 }
 
-/// Generates a machine ID.
-pub fn get_machine_id(account_name: &str) -> Vec<u8> {
-    fn get_c_string_bytes(input: &str) -> Vec<u8> {
-        let mut bytes = input.as_bytes().to_vec();
-        
-        bytes.push(0);
-        bytes
-    }
-
-    fn create_sha1_str(input: &str) -> String {
-        let sha_bytes = create_sha1(input.as_bytes());
-        
-        bytes_to_hex_string(&sha_bytes)
-    }
-
-    fn bytes_to_hex_string(input: &[u8]) -> String {
-        use std::fmt::Write;
-        
-        let mut s = String::with_capacity(2 * input.len());
-        
-        for byte in input {
-            write!(s, "{:02X}", byte).unwrap();
-        }
-        
-        s
-    }
-    
-    let mut buffer = ByteBuffer::new();
-    
-    buffer.set_endian(Endian::LittleEndian);
-    
-    buffer.write_i8(0);
-    buffer.write_bytes(&get_c_string_bytes("MessageObject"));
-    
-    buffer.write_i8(1);
-    buffer.write_bytes(&get_c_string_bytes("BB3"));
-    buffer.write_bytes(&get_c_string_bytes(&create_sha1_str(&format!("SteamUser Hash BB3 {account_name}"))));
-    
-    buffer.write_i8(1);
-    buffer.write_bytes(&get_c_string_bytes("FF2"));
-    buffer.write_bytes(&get_c_string_bytes(&create_sha1_str(&format!("SteamUser Hash FF2 {account_name}"))));
-    
-    buffer.write_i8(1);
-    buffer.write_bytes(&get_c_string_bytes("3B3"));
-    buffer.write_bytes(&get_c_string_bytes(&create_sha1_str(&format!("SteamUser Hash 3B3 {account_name}"))));
-    
-    buffer.write_i8(8);
-    buffer.write_i8(8);
-    buffer.to_bytes()
-}
-
-fn create_sha1(input: &[u8]) -> Vec<u8> {
+pub fn create_sha1(input: &[u8]) -> Vec<u8> {
     let mut hasher = Sha1::new();
     
     hasher.update(input);
@@ -337,18 +261,9 @@ mod tests {
     
     #[test]
     fn test_bad_jwt() {
-        let jwt = "Yup, this is a bad JWT. It's not even a JWT. It's just a string.";
+        let jwt = "Yup, this is a bad JWT. It's not even a JWT. It's just a string. It's not even base64 encoded.";
         let decoded = decode_jwt(jwt).unwrap_err();
         
         assert!(matches!(decoded, DecodeError::InvalidJWT));
-    }
-    
-    #[test]
-    fn decodes_qr_url() {
-        let url = "https://s.team/q/1/123456789012345678";
-        let decoded = decode_qr_url(url).unwrap();
-        
-        assert_eq!(decoded.version, 1);
-        assert_eq!(decoded.client_id, 123456789012345678);
     }
 }

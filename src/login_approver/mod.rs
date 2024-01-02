@@ -14,12 +14,13 @@
 
 mod error;
 mod builder;
+mod helpers;
 
 pub use error::Error;
 pub use builder::LoginApproverBuilder;
 
 use crate::authentication_client::{AuthenticationClient, AuthenticationClientConstructorOptions};
-use crate::helpers::{decode_jwt, decode_base64, generate_hmac_signature, decode_qr_url};
+use crate::helpers::{decode_jwt, decode_base64, generate_hmac_signature};
 use crate::request::{ApproveAuthSessionRequest, MobileConfirmationRequest};
 use crate::transports::web_api::WebApiTransport;
 use reqwest::Client;
@@ -79,7 +80,7 @@ impl LoginApprover {
         &self,
         qr_challenge_url: &str,
     ) -> Result<CAuthentication_GetAuthSessionInfo_Response, Error> {
-        let decoded_qr = decode_qr_url(qr_challenge_url)
+        let decoded_qr = helpers::decode_qr_url(qr_challenge_url)
             .ok_or(Error::InvalidQRUrl)?;
         let response = self.handler.get_auth_session_info(
             decoded_qr.client_id,

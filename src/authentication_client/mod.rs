@@ -4,10 +4,10 @@ mod helpers;
 pub use error::Error;
 pub (crate) use helpers::{EncryptedPassword, AuthenticationClientConstructorOptions};
 
-use helpers::{PlatformData, DeviceDetails, CheckMachineAuthResponse};
+use helpers::{PlatformData, DeviceDetails, CheckMachineAuthResponse, get_machine_id};
 
 use crate::enums::{EOSType, EAuthTokenPlatformType, ETokenRenewalType, EAuthSessionGuardType};
-use crate::helpers::{decode_jwt, get_machine_id, encode_base64, get_spoofed_hostname, create_api_headers, DecodeError};
+use crate::helpers::{decode_jwt, encode_base64, get_spoofed_hostname, create_api_headers, DecodeError};
 use crate::net::ApiRequest;
 use crate::transports::Transport;
 use crate::request::{StartAuthSessionWithCredentialsRequest, MobileConfirmationRequest};

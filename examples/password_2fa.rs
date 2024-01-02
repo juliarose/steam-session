@@ -1,4 +1,4 @@
-use steam_session::login_session::{connect_webapi};
+use steam_session::login_session::connect_webapi;
 use steam_session::request::StartLoginSessionWithCredentialsDetails;
 use steam_session::proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
 use another_steam_totp::generate_auth_code;
