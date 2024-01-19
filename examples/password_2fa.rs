@@ -40,22 +40,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Get the cookies
     let cookies = session.get_web_cookies().await?;
     
+    println!("Got {} cookies", cookies.len());
+    
     // Logging from here on out isn't useful
     simple_logging::log_to_stderr(LevelFilter::Error);
     
-    println!("Got {} cookies", cookies.len());
-    
-    // We need to add the cookies to a cookie jar before we can use them with reqwest
-    let jar = reqwest::cookie::Jar::default();
-    let url = "https://steamcommunity.com".parse::<Url>()?;
-    
-    for cookie in cookies {
-        jar.add_cookie_str(&cookie, &url)
-    }
-    
-    let client = Client::builder()
-        .cookie_provider(Arc::new(jar))
-        .build()?;
+    let client = {
+        // We need to add the cookies to a cookie jar before we can use them with reqwest
+        let jar = reqwest::cookie::Jar::default();
+        let url = "https://steamcommunity.com".parse::<Url>()?;
+        
+        for cookie in cookies {
+            jar.add_cookie_str(&cookie, &url)
+        }
+        
+        Client::builder()
+            .cookie_provider(Arc::new(jar))
+            .build()?
+    };
     // Let's give these cookies a test by fetching our profile
     let html = client.get("https://steamcommunity.com/my")
         .send()
@@ -64,7 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     let fragment = Html::parse_fragment(&html);
     // Take the persona name from the page
-    let persona_name_span = fragment.select(&Selector::parse("span.actual_persona_name")?).next().unwrap();
+    let persona_name_span = fragment.select(&Selector::parse("span.actual_persona_name")?)
+        .next()
+        .unwrap();
     let persona_name = persona_name_span.text()
         .collect::<Vec<_>>()
         .join("");
