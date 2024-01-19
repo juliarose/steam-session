@@ -479,7 +479,7 @@ where
     /// without going through another login attempt if you already have a valid refresh token.
     /// 
     /// Returns an array of strings. Each string contains a cookie, e.g.
-    /// `"steamLoginSecure=blahblahblahblah"`.
+    /// `"steamLoginSecure=blahblahblahblah; Path=/; Secure; HttpOnly; SameSite=None; Domain=steamcommunity.com"`.
     pub async fn get_web_cookies(
         &mut self,
     ) -> Result<Vec<String>, LoginSessionError> {
@@ -500,7 +500,7 @@ where
             transfer_info: Option<Vec<TransferInfo>>,
         }
         
-        async fn any_cookie(request: RequestBuilder) -> Option<Vec<String>> {
+        async fn get_cookies(request: RequestBuilder) -> Option<Vec<String>> {
             let response = request.send().await.ok()?;
             let headers = response.headers();
             let set_cookie = headers.get_all(SET_COOKIE);
@@ -508,9 +508,14 @@ where
                 .into_iter()
                 .flat_map(|header| {
                     let value = header.to_str().ok()?;
-                    let cookie = Cookie::parse(value).ok()?;
+                    let mut cookie = Cookie::parse(value).ok()?;
+                    let domain = response.url().domain()?;
                     
-                    Some(format!("{}={}", cookie.name(), cookie.value()))
+                    cookie.set_domain(domain);
+                    
+                    let domain = cookie.domain()?;
+                    
+                    Some(format!("{}={}; Path=/; Secure; HttpOnly; SameSite=None; Domain={}", cookie.name(), cookie.value(), domain))
                 })
                 .collect::<Vec<String>>();
             
@@ -586,24 +591,33 @@ where
             .map(|transfer_info| {
                 let form = value_to_multipart(transfer_info.params)
                     .text("steamID", u64::from(steamid).to_string());
+                let request = self.client.post(&transfer_info.url).multipart(form);
                 
-                log::debug!("POST {}", transfer_info.url);
                 // send a request that will return cookies if it contains cookies
-                any_cookie(self.client.post(&transfer_info.url).multipart(form))
+                log::debug!("POST {}", transfer_info.url);
+                get_cookies(request)
             })
             .collect::<FuturesOrdered<_>>();
+        let mut cookies = Vec::new();
         
         while let Some(transfer) = transfers.next().await {
-            if let Some(mut cookies) = transfer {
-                if !cookies.iter().any(|cookie| cookie.contains("sessionid=")) {
-                    cookies.push(format!("sessionid={}", sessionid));
-                }
-                
-                return Ok(cookies);
+            if let Some(mut domain_cookies) = transfer {
+                cookies.append(&mut domain_cookies);
             }
         }
         
-        Err(LoginSessionError::NoCookiesInResponse)
+        if cookies.is_empty() {
+            return Err(LoginSessionError::NoCookiesInResponse);
+        }
+        
+        let mut cookies = cookies
+            .into_iter()
+            .filter(|cookie| !cookie.contains("sessionid="))
+            .collect::<Vec<_>>();
+        
+        cookies.push(format!("sessionid={sessionid}"));
+        
+        Ok(cookies)
     }
     
     /// Refreshes the access token. As long as a `refresh_token` is set, you can call this method 

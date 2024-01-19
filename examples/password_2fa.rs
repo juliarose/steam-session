@@ -1,8 +1,13 @@
+use std::sync::Arc;
+
 use steam_session::login_session::connect_webapi;
 use steam_session::request::StartLoginSessionWithCredentialsDetails;
 use steam_session::proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
 use another_steam_totp::generate_auth_code;
 use log::LevelFilter;
+use reqwest::Client;
+use url::Url;
+use scraper::{Html, Selector};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,7 +40,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let cookies = session.get_web_cookies().await?;
     
-    println!("{cookies:?}");
+    // Logging from here on out isn't useful
+    simple_logging::log_to_stderr(LevelFilter::Error);
+    
+    println!("Got {} cookies", cookies.len());
+    
+    let jar = reqwest::cookie::Jar::default();
+    let url = "https://steamcommunity.com".parse::<Url>()?;
+    
+    for cookie in cookies {
+        jar.add_cookie_str(&cookie, &url)
+    }
+    
+    let client = Client::builder()
+        .cookie_provider(Arc::new(jar))
+        .build()?;
+    let text = client.get("https://steamcommunity.com/my")
+        .send()
+        .await?
+        .text()
+        .await?;
+    let fragment = Html::parse_fragment(&text);
+    let actual_persona_name_selector = Selector::parse("span.actual_persona_name")?;
+    let persona_name_span = fragment.select(&actual_persona_name_selector).next().unwrap();
+    let persona_name = persona_name_span.text().collect::<Vec<_>>().join("");
+    
+    println!("Logged in as: {}", persona_name);
     
     Ok(())
 }
