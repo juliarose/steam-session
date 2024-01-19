@@ -1,5 +1,4 @@
 use std::sync::Arc;
-
 use steam_session::login_session::connect_webapi;
 use steam_session::request::StartLoginSessionWithCredentialsDetails;
 use steam_session::proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
@@ -38,6 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
+    // Get the cookies
     let cookies = session.get_web_cookies().await?;
     
     // Logging from here on out isn't useful
@@ -45,6 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     println!("Got {} cookies", cookies.len());
     
+    // We need to add the cookies to a cookie jar before we can use them with reqwest
     let jar = reqwest::cookie::Jar::default();
     let url = "https://steamcommunity.com".parse::<Url>()?;
     
@@ -55,15 +56,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::builder()
         .cookie_provider(Arc::new(jar))
         .build()?;
-    let text = client.get("https://steamcommunity.com/my")
+    // Let's give these cookies a test by fetching our profile
+    let html = client.get("https://steamcommunity.com/my")
         .send()
         .await?
         .text()
         .await?;
-    let fragment = Html::parse_fragment(&text);
-    let actual_persona_name_selector = Selector::parse("span.actual_persona_name")?;
-    let persona_name_span = fragment.select(&actual_persona_name_selector).next().unwrap();
-    let persona_name = persona_name_span.text().collect::<Vec<_>>().join("");
+    let fragment = Html::parse_fragment(&html);
+    // Take the persona name from the page
+    let persona_name_span = fragment.select(&Selector::parse("span.actual_persona_name")?).next().unwrap();
+    let persona_name = persona_name_span.text()
+        .collect::<Vec<_>>()
+        .join("");
     
     println!("Logged in as: {}", persona_name);
     
