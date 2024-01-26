@@ -4,7 +4,8 @@
 //! 
 //! ## Examples
 //! ```
-//! use steam_session::login_approver::{LoginApprover, EAuthTokenPlatformType};
+//! use steam_session::login_approver::LoginApprover;
+//! use steam_session::proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
 //!
 //! let login_approver = LoginApprover::builder("access_token".to_string(), "shared_secret".to_string())
 //!     .platform_type(EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser)
