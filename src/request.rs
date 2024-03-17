@@ -12,6 +12,21 @@ pub struct StartLoginSessionWithCredentialsDetails {
     pub user_agent: Option<&'static str>,
 }
 
+impl Default for StartLoginSessionWithCredentialsDetails {
+    fn default() -> Self {
+        Self {
+            account_name: String::new(),
+            password: String::new(),
+            platform_type: EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser,
+            persistence: None,
+            steam_guard_machine_token: None,
+            steam_guard_code: None,
+            machine_id: None,
+            user_agent: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StartAuthSessionWithCredentialsRequest {
     pub account_name: String,

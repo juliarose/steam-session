@@ -1,5 +1,7 @@
 use std::sync::Arc;
-use steam_session::login_session::connect_webapi;
+use steam_session::login_session::{LoginSession, LoginSessionError};
+use steam_session::transports::web_api::WebApiTransport;
+use steam_session::{login_session::connect_webapi, response::StartSessionResponse};
 use steam_session::request::StartLoginSessionWithCredentialsDetails;
 use steam_session::proto::steammessages_auth_steamclient::EAuthTokenPlatformType;
 use another_steam_totp::generate_auth_code;
@@ -7,6 +9,27 @@ use log::LevelFilter;
 use reqwest::Client;
 use url::Url;
 use scraper::{Html, Selector};
+use std::future::Future;
+
+async fn password_login<Fut>(
+    account_name: String,
+    password: String,
+    f: impl FnOnce(StartSessionResponse) -> Fut,
+) -> Result<LoginSession<WebApiTransport>, Box<dyn std::error::Error>>
+where
+    Fut: Future<Output = Result<(), Box<dyn std::error::Error>>>,
+{
+    let mut session = connect_webapi().await?;
+    let response = session.start_with_credentials(StartLoginSessionWithCredentialsDetails {
+        account_name,
+        password,
+        platform_type: EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser,
+        ..Default::default()
+    }).await?;
+    f(response).await?;
+    
+    Ok(session)
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -16,18 +39,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let account_name = std::env::var("ACCOUNT_NAME")?;
     let password = std::env::var("PASSWORD")?;
     let shared_secret = std::env::var("SHARED_SECRET")?;
-    let details = StartLoginSessionWithCredentialsDetails {
+    let mut session = connect_webapi().await?;
+    let response = session.start_with_credentials(StartLoginSessionWithCredentialsDetails {
         account_name,
         password,
-        persistence: None,
-        steam_guard_machine_token: None,
-        steam_guard_code: None,
         platform_type: EAuthTokenPlatformType::k_EAuthTokenPlatformType_WebBrowser,
-        machine_id: None,
-        user_agent: None,
-    };
-    let mut session = connect_webapi().await?;
-    let response = session.start_with_credentials(details).await?;
+        ..Default::default()
+    }).await?;
     
     if response.requires_device_code() {
         let steam_guard_code = generate_auth_code(shared_secret.clone(), None)?;
