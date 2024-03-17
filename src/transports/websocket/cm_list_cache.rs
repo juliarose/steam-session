@@ -51,7 +51,7 @@ impl CmListCache {
     pub fn new() -> Self {
         Self {
             inner: Vec::new(),
-            expiry_duration: Duration::minutes(5),
+            expiry_duration: Duration::try_minutes(5).unwrap(),
             last_cached: None,
         }
     }

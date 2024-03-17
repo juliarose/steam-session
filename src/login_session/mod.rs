@@ -94,7 +94,7 @@ where
         )?;
         
         Ok(Self {
-            login_timeout: Duration::seconds(LOGIN_TIMEOUT_SECONDS),
+            login_timeout: Duration::try_seconds(LOGIN_TIMEOUT_SECONDS).unwrap(),
             account_name: None,
             refresh_token: None,
             access_token: None,
@@ -547,7 +547,7 @@ where
             // the access token being a JWT (as Valve may change it at any point).
             if self.access_token.is_none() ||
             self.access_token_set_at
-                .map(|datetime| Utc::now() - datetime > Duration::minutes(10))
+                .map(|datetime| Utc::now() - datetime > Duration::try_minutes(10).unwrap())
                 .unwrap_or(false) {
                 self.refresh_access_token().await?;
             }
